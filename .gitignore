@@ -1,0 +1,9 @@
+.env
+node_modules/
+output/
+*.log
+*.json
+!package.json
+!package-lock.json
+!.claude/launch.json
+TTS Voice/

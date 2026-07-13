@@ -1,0 +1,24 @@
+{
+  "name": "tts-model-tester",
+  "version": "1.0.0",
+  "description": "Multi-provider TTS testing system with Web UI and REST API",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-polly": "^3.1084.0",
+    "@google-cloud/text-to-speech": "^5.5.0",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "microsoft-cognitiveservices-speech-sdk": "^1.40.0",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.67.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

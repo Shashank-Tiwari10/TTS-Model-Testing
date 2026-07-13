@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS Model Tester</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242736;
+      --border: #2e3245;
+      --text: #e4e6ef;
+      --text-dim: #8b8fa3;
+      --accent: #6c5ce7;
+      --accent-hover: #7d6ff0;
+      --green: #00b894;
+      --red: #e74c3c;
+      --orange: #f39c12;
+      --blue: #3498db;
+      --radius: 10px;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .badge {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: var(--accent);
+      color: white;
+      font-weight: 500;
+    }
+    header .tier-legend {
+      margin-left: auto;
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    header .tier-legend span { display: flex; align-items: center; gap: 4px; }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+      header .tier-legend { display: none; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+    .card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    select, input[type="text"], textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:focus, input:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
+    .form-group { margin-bottom: 16px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .model-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .model-chip {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .model-chip:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    .model-chip.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .model-note {
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.4;
+      margin-top: 8px;
+    }
+    .provider-section { margin-bottom: 20px; }
+    .provider-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      padding-left: 2px;
+    }
+    .provider-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .provider-tab {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .provider-tab:hover { border-color: var(--accent); color: var(--text); }
+    .provider-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .provider-tab .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+    }
+    .provider-tab .dot.on { background: var(--green); }
+    .config-note {
+      font-size: 12px;
+      color: var(--blue);
+      background: rgba(52, 152, 219, 0.1);
+      border: 1px solid rgba(52, 152, 219, 0.2);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .btn {
+      padding: 12px 28px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      width: 100%;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-sm {
+      padding: 6px 14px;
+      font-size: 12px;
+    }
+    .btn-danger { background: var(--red); color: white; }
+    .result-card {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .result-card audio { width: 100%; margin: 10px 0; }
+    .result-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .result-meta span {
+      font-size: 12px;
+      padding: 3px 10px;
+      background: var(--surface);
+      border-radius: 6px;
+      color: var(--text-dim);
+    }
+    .result-meta .latency { color: var(--green); }
+    .range-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .range-group input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+    .range-group .range-val {
+      font-size: 13px;
+      color: var(--accent);
+      min-width: 40px;
+      text-align: right;
+      font-weight: 600;
+    }
+    .instructions-note {
+      font-size: 12px;
+      color: var(--orange);
+      margin-top: 4px;
+    }
+    .command-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+    .command-preview {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(0, 184, 148, 0.25);
+      border-radius: 8px;
+      background: rgba(0, 184, 148, 0.08);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .command-preview strong { color: var(--text); }
+    .dependency-note {
+      margin-top: 10px;
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .history-item audio { flex: 1; height: 36px; }
+    .history-item .info {
+      font-size: 12px;
+      color: var(--text-dim);
+      min-width: 80px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+    #extraParams .form-group { margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TTS Model Tester</h1>
+    <span class="badge">v2.1 — 10 Providers</span>
+    <div class="tier-legend">
+      <span><span class="dot" style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block"></span> Configured</span>
+      <span><span class="dot" style="width:6px;height:6px;border-radius:50%;background:var(--red);display:inline-block"></span> Not configured</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <div>
+      <div class="card">
+        <h2>Configuration</h2>
+
+        <div class="provider-section">
+          <div class="provider-section-label">India-Native Models</div>
+          <div class="provider-tabs" id="providerTabsTier1"></div>
+        </div>
+        <div class="provider-section">
+          <div class="provider-section-label">Global Models</div>
+          <div class="provider-tabs" id="providerTabsTier2"></div>
+        </div>
+
+        <div id="configNote" class="config-note" style="display:none"></div>
+
+        <div class="form-group">
+          <label>Provider</label>
+          <select id="providerSelect" onchange="selectProvider(this.value)"></select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Model</label>
+            <select id="modelSelect" onchange="syncModelPicker()"></select>
+            <div id="modelPicker" class="model-picker"></div>
+            <div id="modelNote" class="model-note"></div>
+          </div>
+          <div class="form-group">
+            <label>Voice</label>
+            <select id="voiceSelect"></select>
+          </div>
+        </div>
+
+        <div id="extraParams"></div>
+
+        <div class="form-group" id="instructionsGroup" style="display:none">
+          <label>Instructions <span style="color:var(--text-dim)">(prompt for voice style)</span></label>
+          <input type="text" id="instructions" placeholder="e.g. Speak in a warm, friendly tone">
+          <div class="instructions-note" id="instructionsNote"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Voice Command</label>
+          <textarea id="voiceCommand" style="min-height:74px" oninput="scheduleVoiceCommandApply()" placeholder="e.g. Sound like an Indian household owner, female, age 35, warm but firm, medium pace"></textarea>
+          <div class="command-actions" style="margin-top:10px">
+            <button class="btn btn-secondary" type="button" onclick="applyVoiceCommand()">Apply Command</button>
+          </div>
+          <div id="commandPreview" class="command-preview"></div>
+          <div class="dependency-note">
+            No extra package is required for this command box. For audio generation, configure at least one provider key or local endpoint in .env.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Text / Transcript</label>
+          <textarea id="textInput" placeholder="Enter the text you want to convert to speech...">Hello! This is a test of the text-to-speech system. How does this voice sound to you?</textarea>
+        </div>
+
+        <button class="btn btn-primary" id="synthesizeBtn" onclick="synthesize()">
+          Generate Speech
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Results</h2>
+        <div id="results">
+          <div class="empty-state">Generate speech to see results here</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 24px">
+        <h2>History</h2>
+        <div id="history">
+          <div class="empty-state">No audio files yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let providers = {};
+    let activeProvider = null;
+    let commandApplyTimer = null;
+    let currentProviderConfig = null;
+
+    const TIER1 = ['sarvam', 'ai4bharat', 'bharatgen', 'gnani'];
+    const TIER2 = ['openai', 'knowlez', 'aws', 'elevenlabs', 'google', 'azure'];
+
+    async function init() {
+      const res = await fetch('/api/providers');
+      providers = await res.json();
+
+      renderTabs('providerTabsTier1', TIER1);
+      renderTabs('providerTabsTier2', TIER2);
+      renderProviderSelect();
+
+      const allKeys = [...TIER1, ...TIER2];
+      const firstConfigured = allKeys.find(k => providers[k]?.configured) || allKeys.find(k => providers[k]);
+      if (firstConfigured) selectProvider(firstConfigured);
+      loadHistory();
+    }
+
+    function renderProviderSelect() {
+      const providerSelect = document.getElementById('providerSelect');
+      const allKeys = [...TIER1, ...TIER2].filter(k => providers[k]);
+      providerSelect.innerHTML = allKeys
+        .map(k => `<option value="${k}">${providers[k].label}${providers[k].configured ? '' : ' (not configured)'}</option>`)
+        .join('');
+    }
+
+    function renderTabs(containerId, keys) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+      for (const key of keys) {
+        const config = providers[key];
+        if (!config) continue;
+        const tab = document.createElement('button');
+        tab.className = 'provider-tab';
+        tab.dataset.provider = key;
+        tab.innerHTML = `<span class="dot ${config.configured ? 'on' : ''}"></span>${config.label}`;
+        tab.onclick = () => selectProvider(key);
+        container.appendChild(tab);
+      }
+    }
+
+    function selectProvider(key) {
+      activeProvider = key;
+      const config = providers[key];
+      currentProviderConfig = config;
+
+      document.querySelectorAll('.provider-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.provider === key);
+      });
+      const providerSelect = document.getElementById('providerSelect');
+      if (providerSelect.value !== key) providerSelect.value = key;
+
+      const configNoteEl = document.getElementById('configNote');
+      if (config.configNote) {
+        configNoteEl.textContent = config.configNote;
+        configNoteEl.style.display = 'block';
+      } else {
+        configNoteEl.style.display = 'none';
+      }
+
+      const modelSelect = document.getElementById('modelSelect');
+      const models = config.models?.length ? config.models : ['default'];
+      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+      renderModelPicker(models);
+
+      const voiceSelect = document.getElementById('voiceSelect');
+      const voices = config.voices;
+      if (Array.isArray(voices) && voices.length > 0) {
+        if (typeof voices[0] === 'object') {
+          voiceSelect.innerHTML = voices.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+        } else {
+          voiceSelect.innerHTML = voices.map(v => `<option value="${v}">${v}</option>`).join('');
+        }
+      }
+
+      const instructionsGroup = document.getElementById('instructionsGroup');
+      const instructionsNote = document.getElementById('instructionsNote');
+      if (config.supportsInstructions) {
+        instructionsGroup.style.display = 'block';
+        instructionsNote.textContent = config.instructionsNote || '';
+      } else {
+        instructionsGroup.style.display = 'none';
+      }
+
+      const extraDiv = document.getElementById('extraParams');
+      extraDiv.innerHTML = '';
+      if (config.extraParams) {
+        for (const param of config.extraParams) {
+          const group = document.createElement('div');
+          group.className = 'form-group';
+
+          if (param.type === 'range') {
+            group.innerHTML = `
+              <label>${param.label}</label>
+              <div class="range-group">
+                <input type="range" id="extra_${param.key}" min="${param.min}" max="${param.max}"
+                       step="${param.step}" value="${param.default}"
+                       oninput="this.nextElementSibling.textContent=this.value">
+                <span class="range-val">${param.default}</span>
+              </div>`;
+          } else if (param.type === 'select') {
+            const labels = param.optionLabels || param.options;
+            const opts = param.options.map((o, i) => `<option value="${o}" ${o === String(param.default) || o === param.default ? 'selected' : ''}>${labels[i]}</option>`).join('');
+            group.innerHTML = `<label>${param.label}</label><select id="extra_${param.key}">${opts}</select>`;
+          } else if (param.type === 'text') {
+            group.innerHTML = `<label>${param.label}</label><input type="text" id="extra_${param.key}" value="${param.default || ''}" placeholder="${param.label}">`;
+          }
+          extraDiv.appendChild(group);
+        }
+      }
+
+      if (document.getElementById('voiceCommand').value.trim()) {
+        applyVoiceCommand({ showEmptyAlert: false });
+      }
+    }
+
+    function renderModelPicker(models) {
+      const modelPicker = document.getElementById('modelPicker');
+      const modelNote = document.getElementById('modelNote');
+      modelPicker.innerHTML = models.map(model => `
+        <button type="button" class="model-chip" data-model="${model}" onclick="selectModel('${escapeAttr(model)}')">${model}</button>
+      `).join('');
+      modelNote.textContent = models.length === 1
+        ? 'This provider exposes one model in the current configuration.'
+        : 'Choose a model from the dropdown or the buttons above.';
+      syncModelPicker();
+    }
+
+    function selectModel(model) {
+      const modelSelect = document.getElementById('modelSelect');
+      modelSelect.value = model;
+      syncModelPicker();
+    }
+
+    function syncModelPicker() {
+      const selected = document.getElementById('modelSelect').value;
+      document.querySelectorAll('.model-chip').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.model === selected);
+      });
+
+      const config = currentProviderConfig;
+      if (config && config.voicesByModel && config.voicesByModel[selected]) {
+        const voiceSelect = document.getElementById('voiceSelect');
+        const voices = config.voicesByModel[selected];
+        voiceSelect.innerHTML = voices.map(v =>
+          typeof v === 'object' ? `<option value="${v.id}">${v.name}</option>` : `<option value="${v}">${v}</option>`
+        ).join('');
+      }
+    }
+
+    function escapeAttr(value) {
+      return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    function scheduleVoiceCommandApply() {
+      clearTimeout(commandApplyTimer);
+      commandApplyTimer = setTimeout(() => {
+        applyVoiceCommand({ showEmptyAlert: false });
+      }, 250);
+    }
+
+    function applyVoiceCommand({ showEmptyAlert = true } = {}) {
+      const command = document.getElementById('voiceCommand').value.trim();
+      if (!command) {
+        if (showEmptyAlert) alert('Please enter a voice command');
+        return null;
+      }
+
+      const plan = interpretVoiceCommand(command);
+      applyPlanToControls(plan);
+      renderCommandPreview(plan);
+      return plan;
+    }
+
+    function interpretVoiceCommand(command) {
+      const q = command.toLowerCase();
+      const plan = {
+        voiceGender: q.includes('female') || q.includes('woman') || q.includes('lady') ? 'female'
+          : q.includes('male') || q.includes('man') ? 'male'
+          : null,
+        locale: detectLocale(q),
+        age: detectAge(q),
+        tone: detectTone(q),
+        pace: detectPace(q),
+        pitch: detectPitch(q),
+        style: detectStyle(q),
+        instruction: buildVoiceInstruction(command, q),
+      };
+
+      return plan;
+    }
+
+    function detectLocale(q) {
+      if (q.includes('indian') || q.includes('hindi') || q.includes('india')) return 'indian';
+      if (q.includes('american') || q.includes('us ')) return 'american';
+      return null;
+    }
+
+    function detectAge(q) {
+      const match = q.match(/\b(?:age|aged|around)?\s*(\d{2})\b/);
+      return match ? Number(match[1]) : null;
+    }
+
+    function detectTone(q) {
+      const traits = [];
+      if (q.includes('household owner')) traits.push('practical', 'grounded', 'lightly authoritative');
+      else if (q.includes('owner')) traits.push('confident', 'responsible');
+
+      for (const [key, value] of [
+        ['warm', 'warm'],
+        ['friendly', 'friendly'],
+        ['firm', 'firm'],
+        ['calm', 'calm'],
+        ['cheerful', 'cheerful'],
+        ['sad', 'sad'],
+        ['angry', 'angry'],
+        ['excited', 'excited'],
+        ['professional', 'professional'],
+        ['news', 'clear newsreader'],
+        ['narration', 'narrative'],
+      ]) {
+        if (q.includes(key)) traits.push(value);
+      }
+
+      return [...new Set(traits)].join(', ') || 'natural and clear';
+    }
+
+    function detectPace(q) {
+      if (q.includes('slow')) return 'slow';
+      if (q.includes('fast') || q.includes('quick')) return 'fast';
+      return 'medium';
+    }
+
+    function detectPitch(q) {
+      if (q.includes('low pitch') || q.includes('deep')) return 'low';
+      if (q.includes('high pitch') || q.includes('bright')) return 'high';
+      return 'medium';
+    }
+
+    function detectStyle(q) {
+      for (const style of ['cheerful', 'sad', 'angry', 'excited', 'friendly', 'hopeful', 'shouting', 'whispering', 'terrified']) {
+        if (q.includes(style)) return style;
+      }
+      if (q.includes('warm') || q.includes('household') || q.includes('owner')) return 'friendly';
+      return 'default';
+    }
+
+    function buildVoiceInstruction(command, q) {
+      const age = detectAge(q);
+      const gender = q.includes('female') || q.includes('woman') || q.includes('lady') ? 'female'
+        : q.includes('male') || q.includes('man') ? 'male'
+        : 'person';
+      const ageText = age ? ` around ${age} years old` : '';
+      return `Speak like an ${detectLocale(q) === 'indian' ? 'Indian ' : ''}${gender}${ageText}: ${detectTone(q)} tone, ${detectPace(q)} pace, ${detectPitch(q)} pitch. Voice direction: ${command}`;
+    }
+
+    function applyPlanToControls(plan) {
+      const config = providers[activeProvider];
+
+      setVoiceByPlan(plan);
+
+      if (config.supportsInstructions) {
+        document.getElementById('instructions').value = plan.instruction;
+      }
+
+      if (activeProvider === 'openai' && hasOption('modelSelect', 'gpt-4o-mini-tts')) {
+        setSelectValue('modelSelect', 'gpt-4o-mini-tts');
+      }
+
+      if (activeProvider === 'azure') {
+        setSelectValue('extra_style', plan.style);
+        setSelectValue('extra_rate', plan.pace === 'slow' ? '-25%' : plan.pace === 'fast' ? '+25%' : '0%');
+        setSelectValue('extra_pitch', plan.pitch === 'low' ? '-25%' : plan.pitch === 'high' ? '+25%' : '0%');
+      }
+
+      if (activeProvider === 'google') {
+        setRangeValue('extra_speakingRate', plan.pace === 'slow' ? 0.85 : plan.pace === 'fast' ? 1.15 : 1);
+        setRangeValue('extra_pitch', plan.pitch === 'low' ? -2 : plan.pitch === 'high' ? 2 : 0);
+      }
+
+      if (activeProvider === 'sarvam') {
+        if (plan.locale === 'indian') setSelectValue('extra_language', 'hi-IN');
+        setRangeValue('extra_pace', plan.pace === 'slow' ? 0.85 : plan.pace === 'fast' ? 1.15 : 1);
+        setRangeValue('extra_temperature', plan.tone.includes('firm') ? 0.45 : 0.6);
+      }
+
+      if (activeProvider === 'ai4bharat') {
+        if (plan.locale === 'indian') setSelectValue('extra_language', 'hi');
+        const emotion = plan.style === 'friendly' || plan.style === 'cheerful' ? 'Happy'
+          : plan.style === 'sad' ? 'Sad'
+          : plan.style === 'angry' ? 'Anger'
+          : plan.tone.includes('news') ? 'News'
+          : plan.tone.includes('narrative') ? 'Narration'
+          : 'Conversation';
+        setSelectValue('extra_emotion', emotion);
+      }
+
+      if (activeProvider === 'elevenlabs') {
+        setRangeValue('extra_stability', plan.tone.includes('firm') || plan.pitch === 'low' ? 0.7 : 0.55);
+        setRangeValue('extra_similarity', 0.75);
+      }
+
+      if (activeProvider === 'knowlez') {
+        setRangeValue('extra_speed', plan.pace === 'slow' ? 0.85 : plan.pace === 'fast' ? 1.15 : 1);
+        setSelectValue('extra_format', 'mp3');
+      }
+
+      if (activeProvider === 'gnani') {
+        setSelectValue('extra_container', 'wav');
+        setSelectValue('extra_sampleRate', '22050');
+      }
+
+      if (activeProvider === 'aws') {
+        setSelectValue('extra_engine', 'neural');
+        setSelectValue('extra_outputFormat', 'mp3');
+        setSelectValue('extra_sampleRate', '24000');
+      }
+    }
+
+    function setVoiceByPlan(plan) {
+      const voiceSelect = document.getElementById('voiceSelect');
+      const options = Array.from(voiceSelect.options);
+      if (!options.length) return;
+
+      let match = null;
+      if (activeProvider === 'openai') {
+        match = getOpenAIVoiceMatch(plan, options);
+        if (match) {
+          voiceSelect.value = match.value;
+          return;
+        }
+      }
+      if (activeProvider === 'aws') {
+        match = getAwsPollyVoiceMatch(plan, options);
+        if (match) {
+          voiceSelect.value = match.value;
+          return;
+        }
+      }
+
+      if (plan.locale === 'indian') {
+        match = options.find(o => /in-|hindi|indian|swara|neerja|priya|ishita|simran|riya|aditi|anjali|kavya|meera/i.test(o.textContent + ' ' + o.value));
+      }
+      if (plan.voiceGender === 'female') {
+        match = options.find(o => /female|woman|jenny|aria|neerja|swara|priya|ishita|ritu|neha|pooja|simran|kavya|shreya|roopa|tanya|shruti|suhani|kavitha|rupali|aditi|anjali|meera|riya|rachel|bella|elli|nova|shimmer|coral/i.test(o.textContent + ' ' + o.value)) || match;
+      }
+      if (plan.voiceGender === 'male') {
+        match = options.find(o => /male|guy|prabhat|madhur|karan|ravi|arjun|bikram|adam|antoni|josh|onyx|echo/i.test(o.textContent + ' ' + o.value)) || match;
+      }
+      if (match) voiceSelect.value = match.value;
+    }
+
+    function getOpenAIVoiceMatch(plan, options) {
+      const values = options.map(o => o.value);
+      const has = value => values.includes(value);
+      const option = value => options.find(o => o.value === value);
+
+      let preferred = 'alloy';
+      if (plan.voiceGender === 'female') {
+        preferred = plan.tone.includes('firm') || plan.tone.includes('authoritative') ? 'coral' : 'nova';
+        if (plan.pitch === 'high') preferred = 'shimmer';
+        if (plan.tone.includes('calm') || plan.tone.includes('narrative')) preferred = 'sage';
+      } else if (plan.voiceGender === 'male') {
+        preferred = plan.pitch === 'low' || plan.tone.includes('firm') ? 'onyx' : 'echo';
+        if (plan.tone.includes('warm') || plan.tone.includes('friendly')) preferred = 'ash';
+      } else if (plan.tone.includes('warm') || plan.tone.includes('friendly')) {
+        preferred = 'nova';
+      } else if (plan.tone.includes('narrative')) {
+        preferred = 'fable';
+      }
+
+      if (has(preferred)) return option(preferred);
+      return options.find(o => o.value !== 'alloy') || options[0];
+    }
+
+    function getAwsPollyVoiceMatch(plan, options) {
+      const values = options.map(o => o.value);
+      const option = value => options.find(o => o.value === value);
+
+      if (plan.locale === 'indian') {
+        if (plan.voiceGender === 'female' && values.includes('Kajal')) return option('Kajal');
+        if (values.includes('Aditi')) return option('Aditi');
+      }
+
+      if (plan.voiceGender === 'female') {
+        for (const voice of ['Joanna', 'Danielle', 'Amy', 'Olivia', 'Aria']) {
+          if (values.includes(voice)) return option(voice);
+        }
+      }
+
+      if (plan.voiceGender === 'male') {
+        for (const voice of ['Matthew', 'Stephen', 'Brian']) {
+          if (values.includes(voice)) return option(voice);
+        }
+      }
+
+      return option('Joanna') || options[0];
+    }
+
+    function setRangeValue(id, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = value;
+      if (el.nextElementSibling) el.nextElementSibling.textContent = el.value;
+    }
+
+    function setSelectValue(id, value) {
+      const el = document.getElementById(id);
+      if (!el || !hasOption(id, value)) return;
+      el.value = value;
+      if (id === 'modelSelect') syncModelPicker();
+    }
+
+    function hasOption(id, value) {
+      const el = document.getElementById(id);
+      return !!el && Array.from(el.options).some(o => o.value === value);
+    }
+
+    function renderCommandPreview(plan) {
+      const preview = document.getElementById('commandPreview');
+      const applied = [
+        plan.voiceGender && `voice: ${plan.voiceGender}`,
+        plan.locale && `locale: ${plan.locale}`,
+        plan.age && `age: ${plan.age}`,
+        `tone: ${plan.tone}`,
+        `pace: ${plan.pace}`,
+        `pitch: ${plan.pitch}`,
+      ].filter(Boolean).join(' · ');
+      preview.innerHTML = `<strong>Applied:</strong> ${applied}<br><strong>Instruction:</strong> ${plan.instruction}`;
+      preview.style.display = 'block';
+    }
+
+    async function synthesize() {
+      const text = document.getElementById('textInput').value.trim();
+      if (!text) return alert('Please enter some text');
+
+      applyVoiceCommand({ showEmptyAlert: false });
+
+      const btn = document.getElementById('synthesizeBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Generating...';
+
+      const config = providers[activeProvider];
+      const body = {
+        provider: activeProvider,
+        text,
+        voice: document.getElementById('voiceSelect').value,
+        model: document.getElementById('modelSelect').value,
+      };
+
+      if (config.supportsInstructions) {
+        const instr = document.getElementById('instructions').value.trim();
+        if (instr) {
+          body.instructions = instr;
+          body.description = instr;
+        }
+      }
+
+      if (config.extraParams) {
+        for (const param of config.extraParams) {
+          const el = document.getElementById(`extra_${param.key}`);
+          if (el && el.value) body[param.key] = el.value;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/synthesize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        addResult(data, text);
+        loadHistory();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate Speech';
+      }
+    }
+
+    function addResult(data, text) {
+      const div = document.getElementById('results');
+      if (div.querySelector('.empty-state')) div.innerHTML = '';
+
+      const card = document.createElement('div');
+      card.className = 'result-card';
+      const truncated = text.length > 80 ? text.substring(0, 80) + '...' : text;
+      card.innerHTML = `
+        <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">"${truncated}"</div>
+        <audio controls src="${data.file}"></audio>
+        <div class="result-meta">
+          <span>${data.provider}</span>
+          <span>${data.model}</span>
+          <span>${data.voice}</span>
+          <span class="latency">${data.latencyMs}ms</span>
+          <span>${(data.size / 1024).toFixed(1)} KB</span>
+        </div>`;
+      div.prepend(card);
+    }
+
+    async function loadHistory() {
+      const res = await fetch('/api/history');
+      const files = await res.json();
+      const div = document.getElementById('history');
+
+      if (files.length === 0) {
+        div.innerHTML = '<div class="empty-state">No audio files yet</div>';
+        return;
+      }
+
+      div.innerHTML = files.slice(0, 20).map(f => `
+        <div class="history-item">
+          <div class="info">${f.provider}<br>${new Date(f.timestamp).toLocaleTimeString()}</div>
+          <audio controls src="${f.file}" preload="none"></audio>
+          <button class="btn btn-sm btn-danger" onclick="deleteFile('${f.filename}')">&#10005;</button>
+        </div>`).join('');
+    }
+
+    async function deleteFile(filename) {
+      await fetch(`/api/history/${filename.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' });
+      loadHistory();
+    }
+
+    init();
+  </script>
+</body>
+</html>
