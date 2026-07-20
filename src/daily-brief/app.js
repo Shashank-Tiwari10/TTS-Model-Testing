@@ -93,7 +93,7 @@ export function createApp() {
 
 const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zahab Daily Brief Console</title>
+<title>Behalf — Run Home on your behalf</title>
 <style>
   * { box-sizing: border-box; margin: 0; }
   body { font-family: Georgia, 'Times New Roman', serif; background: #fafaf9; color: #172554; }
@@ -120,7 +120,7 @@ const PAGE = `<!doctype html>
 <body><div class="wrap">
   <div id="login" class="hidden">
     <div style="text-align:center;margin:40px 0 24px"><div class="crown">♛</div>
-      <h1>Zahab Daily Brief Console</h1><div class="sub">Voice notes &amp; translations · Admin access only</div></div>
+      <h1>Behalf</h1><div class="sub">Run Home on your behalf</div></div>
     <div class="card" style="max-width:420px;margin:0 auto">
       <label>Email</label><input id="email" type="email" placeholder="shashank@admin.com">
       <label>Password</label><input id="password" type="password" placeholder="Password">
