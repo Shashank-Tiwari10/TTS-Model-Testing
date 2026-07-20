@@ -64,3 +64,22 @@ jobs:
           git diff --cached --quiet || git commit -m "brief: nightly voice note + texts [skip ci]"
           git pull --rebase origin master
           git push origin master
+
+      # Permanent text archive: append the command draft + translations to the
+      # Zahab-Brief-Database repo (deploy key; never pruned).
+      - name: Checkout brief database
+        uses: actions/checkout@v4
+        with:
+          repository: Shashank-Tiwari10/Zahab-Brief-Database
+          ssh-key: ${{ secrets.DB_DEPLOY_KEY }}
+          path: brief-db
+
+      - name: Archive draft + translation to database
+        run: |
+          node src/daily-brief/archive-to-db.js brief-db
+          cd brief-db
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "archive: $(date -u +%F) command draft + translations"
+          git push
