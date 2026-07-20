@@ -1,0 +1,17 @@
+{
+  "id": "2026-07-22_day-03",
+  "client": "zahab_rishabh",
+  "clientName": "Zahab and Rishabh",
+  "date": "2026-07-22",
+  "day": 3,
+  "week": 1,
+  "weekday": "Wed",
+  "cycle": 1,
+  "totalTasks": 88,
+  "totalMinutes": 119,
+  "voice": "hi-IN-SwaraNeural",
+  "translateModel": "gpt-5.6-terra",
+  "audioBytes": 1216224,
+  "generatedAt": "2026-07-20T22:23:46.544Z",
+  "sent": null
+}

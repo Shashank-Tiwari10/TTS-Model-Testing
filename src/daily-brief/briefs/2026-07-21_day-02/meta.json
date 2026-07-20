@@ -1,0 +1,31 @@
+{
+  "id": "2026-07-21_day-02",
+  "client": "zahab_rishabh",
+  "clientName": "Zahab and Rishabh",
+  "date": "2026-07-21",
+  "day": 2,
+  "week": 1,
+  "weekday": "Tue",
+  "cycle": 1,
+  "totalTasks": 89,
+  "totalMinutes": 118.5,
+  "voice": "hi-IN-SwaraNeural",
+  "translateModel": "gpt-5.6-terra",
+  "audioBytes": 1149984,
+  "generatedAt": "2026-07-20T22:09:40.389Z",
+  "sent": {
+    "email": {
+      "ok": true,
+      "detail": "sent to mainshashanktiwari14@gmail.com (<2c00e0b3-2a89-4316-1a49-770a592c2918@gmail.com>)",
+      "at": "2026-07-20T22:18:10.153Z",
+      "to": "mainshashanktiwari14@gmail.com"
+    },
+    "whatsapp": {
+      "ok": false,
+      "skipped": true,
+      "detail": "Twilio credentials not set in .env — WhatsApp skipped",
+      "at": "2026-07-20T22:18:10.153Z",
+      "to": "+919569598949"
+    }
+  }
+}

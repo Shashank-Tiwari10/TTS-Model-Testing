@@ -150,6 +150,10 @@ export function markSent(id, sent) {
   const metaPath = join(BRIEFS_DIR, id, "meta.json");
   const meta = JSON.parse(readFileSync(metaPath, "utf8"));
   meta.sent = { ...(meta.sent || {}), ...sent };
-  writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  try {
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  } catch {
+    // Read-only filesystem (Vercel): the send still happened; status just isn't persisted.
+  }
   return meta;
 }

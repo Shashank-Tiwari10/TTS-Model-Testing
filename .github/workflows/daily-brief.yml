@@ -14,6 +14,9 @@ on:
     - cron: "30 14 * * *" # 20:00 IST daily
   workflow_dispatch: {}
 
+permissions:
+  contents: write # to commit the generated brief back for the online (Vercel) console
+
 jobs:
   send-brief:
     runs-on: ubuntu-latest
@@ -48,3 +51,16 @@ jobs:
           name: zahab-brief
           path: src/daily-brief/briefs/
           if-no-files-found: ignore
+
+      # Commit the brief into the repo so the Vercel console serves it online.
+      # Keeps only the newest 30 brief folders; the push triggers a Vercel redeploy.
+      - name: Commit brief for the online console
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          ls -d src/daily-brief/briefs/*/ 2>/dev/null | sort | head -n -30 | xargs -r git rm -r --quiet --ignore-unmatch
+          ls -d src/daily-brief/briefs/*/ 2>/dev/null | sort | head -n -30 | xargs -r rm -rf
+          git add src/daily-brief/briefs
+          git diff --cached --quiet || git commit -m "brief: nightly voice note + texts [skip ci]"
+          git pull --rebase origin master
+          git push origin master
