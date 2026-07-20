@@ -58,7 +58,7 @@ const out = {
   clientName: "Zahab and Rishabh",
   source,
   importedAt: new Date().toISOString(),
-  quarterAnchor: "2026-06-01", // Day 1 = Monday 1 June 2026; 6-day weeks, Sundays off
+  quarterAnchor: "2026-07-20", // Day 1 = Monday 20 July 2026 (owner set 21 Jul = Day 2); 6-day weeks, Sundays off
   totalDays: TOTAL_DAYS,
   tasks,
   dayTasks,

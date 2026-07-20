@@ -1,6 +1,7 @@
 // Zahab & Rishabh daily plan lookup: maps a calendar date to the schedule day (1–78)
-// and its due tasks. Quarter anchor: Monday 2026-06-01 = Day 1. 6-day weeks — Sundays
-// are off (no brief). After Day 78 the 13-week cycle repeats, staying weekday-aligned.
+// and its due tasks. Quarter anchor comes from zahab-plan.json (currently Monday
+// 2026-07-20 = Day 1, so 21 Jul = Day 2, per the owner). 6-day weeks — Sundays are
+// off (no brief). After Day 78 the 13-week cycle repeats, staying weekday-aligned.
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
