@@ -36,6 +36,17 @@ brief. Alternative without keeping the server up (Windows Task Scheduler, daily 
 schtasks /Create /SC DAILY /ST 07:00 /TN "ZahabDailyBrief" /TR "cmd /c cd /d \"E:\VarMC.ai\App_Development\TTS model testing\" && npm run brief:today"
 ```
 
+## Online console (Vercel)
+
+The same console runs online: import this repo at <https://vercel.com/new> (framework
+preset **Other**, no build command) and set env vars `ADMIN_EMAIL` + `ADMIN_PASSWORD`
+(same login), plus optionally `SMTP_USER` / `SMTP_PASS` / `BRIEF_TO_EMAIL` so the online
+"Send Now" button can email. `vercel.json` + `api/index.js` are already wired. The nightly
+GitHub Action commits each new brief into `briefs/` (newest 30 kept) — that push makes
+Vercel redeploy, so the online console always shows the latest voice notes. Generation
+itself stays on GitHub Actions/local; the online console is for viewing, playing, and
+re-sending.
+
 ## One-time setup still needed
 
 1. **Email**: create a Gmail **App Password** (Google Account → Security → 2-Step
