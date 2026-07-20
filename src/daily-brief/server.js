@@ -5,13 +5,11 @@
 // text, delivery status — with Generate / Send buttons.
 // Auto mode: BRIEF_AUTO_SEND=true generates + emails the brief every Mon–Sat at
 // BRIEF_SEND_TIME (IST, default 06:30) while this server is running.
-import dotenv from "dotenv";
+import "./env.js";
 import express from "express";
 import { randomBytes } from "crypto";
 import { existsSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".env") });
+import { join } from "path";
 import { istDateParts } from "./plan.js";
 import { generateBrief, loadBrief, listBriefs, BRIEFS_DIR } from "./generate.js";
 import { deliverBrief } from "./notify.js";

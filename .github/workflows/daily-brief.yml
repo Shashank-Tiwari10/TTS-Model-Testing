@@ -1,0 +1,50 @@
+# Zahab Daily Cleaning Brief — hosted on GitHub Actions.
+# Runs every day at 20:00 IST (14:30 UTC) and emails the NEXT day's brief, so the
+# owner has tomorrow's voice note + translation the evening before. On Saturday
+# evening the next day is Sunday (weekly off) — the script detects it and sends nothing.
+# Note: GitHub cron can start a few minutes late at busy times; that's normal.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   OPENAI_API_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, SMTP_USER, SMTP_PASS
+# Optional (WhatsApp): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+name: Daily Zahab Brief
+
+on:
+  schedule:
+    - cron: "30 14 * * *" # 20:00 IST daily
+  workflow_dispatch: {}
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate and send tomorrow's brief
+        run: npm run brief:today -- --tomorrow
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+
+      # Keep the generated voice note + texts downloadable from the run page (90 days).
+      - name: Upload brief artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zahab-brief
+          path: src/daily-brief/briefs/
+          if-no-files-found: ignore
