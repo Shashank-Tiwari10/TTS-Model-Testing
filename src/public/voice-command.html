@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Command Pipeline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #242736;
+      --border: #2e3245; --text: #e4e6ef; --text-dim: #8b8fa3;
+      --accent: #6c5ce7; --accent-hover: #7d6ff0;
+      --green: #00b894; --red: #e74c3c; --orange: #f39c12; --blue: #3498db;
+      --radius: 10px;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--accent); color: white; font-weight: 500; }
+    header a { color: var(--accent); text-decoration: none; margin-left: auto; font-size: 14px; }
+    header a:hover { color: var(--accent-hover); }
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    .pipeline-steps { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+    .step-indicator { padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+    .step-indicator.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .step-indicator.done { background: var(--green); color: white; border-color: var(--green); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+    .card h2 { font-size: 16px; margin-bottom: 16px; color: var(--accent); }
+    .card h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
+    label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input[type="file"], input[type="number"] {
+      width: 100%; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px; outline: none;
+    }
+    select:focus, input:focus { border-color: var(--accent); }
+    textarea {
+      width: 100%; padding: 12px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px; font-family: 'Consolas', monospace;
+      resize: vertical; min-height: 200px; line-height: 1.6; outline: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent); }
+    .btn-success { background: var(--green); color: white; }
+    .btn-success:hover { opacity: 0.9; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .stat { padding: 6px 12px; background: var(--surface2); border-radius: 8px; font-size: 12px; color: var(--text-dim); }
+    .stat strong { color: var(--text); }
+    .status { padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 13px; }
+    .status-success { background: rgba(0,184,148,0.1); border: 1px solid var(--green); color: var(--green); }
+    .status-error { background: rgba(231,76,60,0.1); border: 1px solid var(--red); color: var(--red); }
+    .status-loading { background: rgba(108,92,231,0.1); border: 1px solid var(--accent); color: var(--accent); }
+    .audio-result { margin-top: 16px; }
+    .audio-result audio { width: 100%; margin-top: 8px; }
+    .hidden { display: none; }
+    .tone-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .tone-card { padding: 12px; background: var(--surface2); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .tone-card:hover { border-color: var(--accent); }
+    .tone-card.selected { border-color: var(--accent); background: rgba(108,92,231,0.1); }
+    .tone-card h4 { font-size: 13px; margin-bottom: 4px; }
+    .tone-card p { font-size: 11px; color: var(--text-dim); }
+    .step-section { transition: opacity 0.3s; }
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .phase-summary { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 12px 0; }
+    .phase-box { padding: 8px; background: var(--surface2); border-radius: 8px; text-align: center; font-size: 11px; }
+    .phase-box .count { font-size: 18px; font-weight: 700; color: var(--accent); }
+    @media (max-width: 768px) {
+      .form-row, .form-row-3 { grid-template-columns: 1fr; }
+      .phase-summary { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Voice Command Pipeline</h1>
+    <span class="badge">Excel → English → Hindi Roman → Devnagri → Audio</span>
+    <a href="/">← Back to TTS Tester</a>
+  </header>
+
+  <div class="container">
+    <div class="pipeline-steps">
+      <span class="step-indicator active" id="stepInd1">1. Upload Schedule</span>
+      <span class="step-indicator" id="stepInd2">2. Select Day & Generate English</span>
+      <span class="step-indicator" id="stepInd3">3. Khadiboli Hindi (Roman)</span>
+      <span class="step-indicator" id="stepInd4">4. Devnagri Script</span>
+      <span class="step-indicator" id="stepInd5">5. Generate Audio</span>
+    </div>
+
+    <!-- STEP 1: Upload -->
+    <div class="card step-section" id="step1">
+      <h2>Step 1 — Upload Cleaning Schedule (Excel)</h2>
+      <div class="form-group">
+        <label>Select Excel File (.xlsx)</label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="uploadFile()">
+      </div>
+      <div id="uploadStatus"></div>
+    </div>
+
+    <!-- STEP 2: Day Selection & English -->
+    <div class="card step-section hidden" id="step2">
+      <h2>Step 2 — Select Day & Generate English Script</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Day Number (1-78)</label>
+          <input type="number" id="dayNumber" min="1" max="78" value="1">
+        </div>
+        <div class="form-group">
+          <label>Translation Model</label>
+          <select id="translationModel">
+            <option value="sarvam-mayura">Sarvam Mayura v1 (best for natural Hindi / Hinglish)</option>
+            <option value="gpt-5.6-terra">OpenAI GPT-5.6 Terra (balanced, recommended)</option>
+            <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol (flagship)</option>
+            <option value="gpt-5.6-luna">OpenAI GPT-5.6 Luna (fast & cheap)</option>
+            <option value="openai">OpenAI GPT-4o-mini</option>
+            <option value="gpt-4o">OpenAI GPT-4o</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="generateEnglish()">Generate English Script</button>
+      <div id="dayStatus"></div>
+      <div id="englishResult" class="hidden">
+        <h3>English Script</h3>
+        <div class="stats" id="dayStats"></div>
+        <div class="phase-summary" id="phaseSummary"></div>
+        <textarea id="englishText" rows="15"></textarea>
+        <div class="btn-group">
+          <button class="btn btn-primary" onclick="translateToRoman()">Next → Convert to Khadiboli Hindi (Roman)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Khadiboli Hindi Roman -->
+    <div class="card step-section hidden" id="step3">
+      <h2>Step 3 — Khadiboli Hindi (Roman Script)</h2>
+      <label style="font-weight:600;margin-bottom:4px;">Translation Style Instructions</label>
+      <p style="font-size:11px;color:var(--text-dim);margin:0 0 6px;">Describe how you want the Hindi translation — politeness, tone, manner. This instruction is sent to the AI model.</p>
+      <textarea id="styleInstructions" rows="5" style="margin-bottom:12px;font-size:12px;">Speak like a warm house owner leaving a voice message for a trusted helper — respectful, never rude or over-familiar. Mix the respectful endings naturally: "kar dijiye", "kar lijiye", "kijiyega", "rakhiyega", "karni hai", "karna hoga", "wipe honge" — do NOT end every sentence with the same word. Never plain "karo/aao", avoid "kar dena/kar lena". No symbols in speech: "/" becomes "ya", "and/+" becomes "aur", drop "-" from names. Space, Object and Work names stay exactly in English. Vary connectives (phir, uske baad, aur haan, sabse pehle, last mein) — don't repeat one filler again and again.</textarea>
+      <div id="romanStatus"></div>
+      <textarea id="romanText" rows="15"></textarea>
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="retranslateRoman()">↻ Re-translate</button>
+        <button class="btn btn-primary" onclick="translateToDevnagri()">Next → Convert to Devnagri</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Devnagri -->
+    <div class="card step-section hidden" id="step4">
+      <h2>Step 4 — Devnagri Script (देवनागरी)</h2>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Hindi connectives in Devnagri. Space/Object/Work names remain in English.</p>
+      <div id="devnagriStatus"></div>
+      <textarea id="devnagriText" rows="15"></textarea>
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="retranslateDevnagri()">↻ Re-translate</button>
+        <button class="btn btn-primary" onclick="goToAudio()">Next → Select Tone & Generate Audio</button>
+      </div>
+    </div>
+
+    <!-- STEP 5: Tone & Audio -->
+    <div class="card step-section hidden" id="step5">
+      <h2>Step 5 — Select Tone & Generate Audio</h2>
+
+      <label>Select Tone Profile</label>
+      <div class="tone-cards" id="toneCards"></div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>TTS Provider</label>
+          <select id="ttsProvider" onchange="updateVoiceSuggestion()">
+            <option value="sarvam">Sarvam AI (Bulbul)</option>
+            <option value="openai">OpenAI TTS</option>
+            <option value="azure">Azure Speech</option>
+            <option value="google">Google Cloud TTS</option>
+            <option value="gemini">Google Gemini TTS</option>
+            <option value="elevenlabs">ElevenLabs</option>
+            <option value="gnani">Gnani.ai</option>
+            <option value="knowlez">Knowlez API</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>TTS Model</label>
+          <select id="ttsModel">
+            <option value="bulbul:v3">bulbul:v3</option>
+            <option value="bulbul:v2">bulbul:v2</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Suggested Voice</label>
+          <input type="text" id="suggestedVoice" readonly style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--green);">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Final Text for Audio (editable — review before generating)</label>
+        <textarea id="finalAudioText" rows="10"></textarea>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="generateAudio()" id="generateAudioBtn">Generate Audio</button>
+      </div>
+
+      <div id="audioStatus"></div>
+      <div id="audioResult" class="hidden audio-result">
+        <h3>Generated Audio</h3>
+        <audio controls id="audioPlayer"></audio>
+        <div class="stats" id="audioStats"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentStep = 1;
+    let pipelineData = { english: '', roman: '', devnagri: '', selectedTone: 'empathy' };
+
+    function setStep(n) {
+      for (let i = 1; i <= 5; i++) {
+        const ind = document.getElementById(`stepInd${i}`);
+        const sec = document.getElementById(`step${i}`);
+        ind.classList.remove('active', 'done');
+        if (i < n) ind.classList.add('done');
+        else if (i === n) ind.classList.add('active');
+        if (i <= n) sec.classList.remove('hidden');
+      }
+      currentStep = n;
+      document.getElementById(`step${n}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function showStatus(elId, msg, type) {
+      const el = document.getElementById(elId);
+      el.className = `status status-${type}`;
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    async function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files[0]) return;
+
+      showStatus('uploadStatus', 'Uploading and parsing Excel...', 'loading');
+      const formData = new FormData();
+      formData.append('schedule', fileInput.files[0]);
+
+      try {
+        const res = await fetch('/api/voice-command/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        showStatus('uploadStatus',
+          `Uploaded: ${data.fileName} | ${data.totalTasks} tasks | ${data.totalDays} days | Sheet: ${data.sheetName}`,
+          'success');
+        document.getElementById('dayNumber').max = data.totalDays;
+        setStep(2);
+      } catch (err) {
+        showStatus('uploadStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function generateEnglish() {
+      const day = document.getElementById('dayNumber').value;
+      showStatus('dayStatus', `Generating English script for Day ${day}...`, 'loading');
+
+      try {
+        const res = await fetch(`/api/voice-command/day/${day}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('englishText').value = data.englishScript;
+        pipelineData.english = data.englishScript;
+
+        document.getElementById('dayStats').innerHTML =
+          `<span class="stat">Day <strong>${data.dayInfo.day}</strong></span>` +
+          `<span class="stat">Weekday <strong>${data.dayInfo.weekday}</strong></span>` +
+          `<span class="stat">Week <strong>${data.dayInfo.week}</strong></span>` +
+          `<span class="stat">Total Tasks <strong>${data.totalTasks}</strong></span>`;
+
+        const phaseNames = ['', 'Dry Work', 'Floor', 'Outer', 'Kitchen', 'Washroom', 'Closing'];
+        document.getElementById('phaseSummary').innerHTML =
+          Object.entries(data.phaseCounts).map(([k, v]) =>
+            `<div class="phase-box"><div class="count">${v}</div>Phase ${k}<br>${phaseNames[k]}</div>`
+          ).join('');
+
+        document.getElementById('englishResult').classList.remove('hidden');
+        showStatus('dayStatus', `Generated ${data.totalTasks} tasks for Day ${day} (${data.dayInfo.weekday})`, 'success');
+      } catch (err) {
+        showStatus('dayStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function translateToRoman() {
+      setStep(3);
+      const text = document.getElementById('englishText').value;
+      const model = document.getElementById('translationModel').value;
+      const styleInstructions = document.getElementById('styleInstructions').value;
+      showStatus('romanStatus', `Translating to Khadiboli Hindi (Roman) using ${model}...`, 'loading');
+
+      try {
+        const res = await fetch('/api/voice-command/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, step: 'english-to-roman', model, styleInstructions })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('romanText').value = data.result;
+        pipelineData.roman = data.result;
+        showStatus('romanStatus', `Translated to Khadiboli Hindi (Roman) using ${model}`, 'success');
+      } catch (err) {
+        showStatus('romanStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function retranslateRoman() {
+      const text = document.getElementById('englishText').value;
+      const model = document.getElementById('translationModel').value;
+      const styleInstructions = document.getElementById('styleInstructions').value;
+      showStatus('romanStatus', `Re-translating using ${model}...`, 'loading');
+
+      try {
+        const res = await fetch('/api/voice-command/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, step: 'english-to-roman', model, styleInstructions })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('romanText').value = data.result;
+        pipelineData.roman = data.result;
+        showStatus('romanStatus', `Re-translated using ${model}`, 'success');
+      } catch (err) {
+        showStatus('romanStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function translateToDevnagri() {
+      setStep(4);
+      const text = document.getElementById('romanText').value;
+      const model = document.getElementById('translationModel').value;
+      showStatus('devnagriStatus', `Converting to Devnagri using ${model}...`, 'loading');
+
+      try {
+        const res = await fetch('/api/voice-command/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, step: 'roman-to-devanagari', model })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('devnagriText').value = data.result;
+        pipelineData.devnagri = data.result;
+        showStatus('devnagriStatus', `Converted to Devnagri using ${model}`, 'success');
+      } catch (err) {
+        showStatus('devnagriStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function retranslateDevnagri() {
+      const text = document.getElementById('romanText').value;
+      const model = document.getElementById('translationModel').value;
+      showStatus('devnagriStatus', `Re-converting using ${model}...`, 'loading');
+
+      try {
+        const res = await fetch('/api/voice-command/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, step: 'roman-to-devanagari', model })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('devnagriText').value = data.result;
+        pipelineData.devnagri = data.result;
+        showStatus('devnagriStatus', `Re-converted using ${model}`, 'success');
+      } catch (err) {
+        showStatus('devnagriStatus', `Error: ${err.message}`, 'error');
+      }
+    }
+
+    function goToAudio() {
+      setStep(5);
+      document.getElementById('finalAudioText').value = document.getElementById('devnagriText').value;
+      loadToneCards();
+      updateVoiceSuggestion();
+    }
+
+    async function loadToneCards() {
+      try {
+        const res = await fetch('/api/voice-command/tones');
+        const tones = await res.json();
+        const container = document.getElementById('toneCards');
+        container.innerHTML = Object.entries(tones).map(([key, t]) =>
+          `<div class="tone-card ${key === pipelineData.selectedTone ? 'selected' : ''}" onclick="selectTone('${key}')">
+            <h4>${t.name}</h4>
+            <p>${t.description}</p>
+          </div>`
+        ).join('');
+      } catch (err) {
+        console.error('Failed to load tones:', err);
+      }
+    }
+
+    function selectTone(key) {
+      pipelineData.selectedTone = key;
+      document.querySelectorAll('.tone-card').forEach(c => c.classList.remove('selected'));
+      event.currentTarget.classList.add('selected');
+      updateVoiceSuggestion();
+    }
+
+    async function updateVoiceSuggestion() {
+      const provider = document.getElementById('ttsProvider').value;
+      const model = document.getElementById('ttsModel').value;
+      try {
+        const res = await fetch('/api/voice-command/suggest-voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tone: pipelineData.selectedTone, provider, model })
+        });
+        const data = await res.json();
+        document.getElementById('suggestedVoice').value = data.suggestedVoice || 'default';
+      } catch (err) {
+        document.getElementById('suggestedVoice').value = 'default';
+      }
+    }
+
+    async function generateAudio() {
+      const text = document.getElementById('finalAudioText').value;
+      const provider = document.getElementById('ttsProvider').value;
+      const model = document.getElementById('ttsModel').value;
+      const voice = document.getElementById('suggestedVoice').value;
+
+      document.getElementById('generateAudioBtn').disabled = true;
+      showStatus('audioStatus', `Generating audio with ${provider} (${voice})... This may take a moment for long scripts.`, 'loading');
+
+      try {
+        const res = await fetch('/api/voice-command/generate-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, provider, model, voice, tone: pipelineData.selectedTone, language: 'hi-IN', dayNumber: document.getElementById('dayNumber').value })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('audioPlayer').src = data.file;
+        document.getElementById('audioStats').innerHTML =
+          `<span class="stat">Provider <strong>${data.provider}</strong></span>` +
+          `<span class="stat">Voice <strong>${data.voice}</strong></span>` +
+          `<span class="stat">Size <strong>${(data.size / 1024).toFixed(1)} KB</strong></span>` +
+          `<span class="stat">Chunks <strong>${data.chunks || 1}</strong></span>` +
+          `<span class="stat">Latency <strong>${data.latencyMs}ms</strong></span>` +
+          (data.savedTo ? `<br><span class="stat" style="margin-top:6px;">Saved to <strong>${data.savedTo}</strong></span>` : '');
+        document.getElementById('audioResult').classList.remove('hidden');
+        showStatus('audioStatus', `Audio generated successfully! Saved to: ${data.folder || 'voice-commands'}`, 'success');
+      } catch (err) {
+        showStatus('audioStatus', `Error: ${err.message}`, 'error');
+      } finally {
+        document.getElementById('generateAudioBtn').disabled = false;
+      }
+    }
+
+    // Provider model mapping
+    const providerModels = {
+      sarvam: ['bulbul:v3', 'bulbul:v2'],
+      openai: ['tts-1', 'tts-1-hd'],
+      azure: ['azure-neural'],
+      google: ['neural2', 'studio'],
+      gemini: ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
+      elevenlabs: ['eleven_multilingual_v2', 'eleven_turbo_v2_5'],
+      gnani: ['vachana'],
+      knowlez: ['knowlez-v1'],
+    };
+
+    document.getElementById('ttsProvider').addEventListener('change', function() {
+      const models = providerModels[this.value] || ['default'];
+      const sel = document.getElementById('ttsModel');
+      sel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+      updateVoiceSuggestion();
+    });
+  </script>
+</body>
+</html>

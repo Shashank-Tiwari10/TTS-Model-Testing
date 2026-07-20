@@ -6,4 +6,7 @@ output/
 !package.json
 !package-lock.json
 !.claude/launch.json
+!src/daily-brief/zahab-plan.json
+src/daily-brief/briefs/
+uploads/
 TTS Voice/

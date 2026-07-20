@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speech-to-Text Tester</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #242736;
+      --border: #2e3245; --text: #e4e6ef; --text-dim: #8b8fa3;
+      --accent: #6c5ce7; --accent-hover: #7d6ff0;
+      --green: #00b894; --red: #e74c3c; --orange: #f39c12; --blue: #3498db;
+      --radius: 10px;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--accent); color: white; font-weight: 500; }
+    header a { color: var(--accent); text-decoration: none; margin-left: auto; font-size: 14px; }
+    header a:hover { color: var(--accent-hover); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+    .card h2 { font-size: 16px; margin-bottom: 16px; color: var(--accent); }
+    label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input[type="file"], input[type="number"] {
+      width: 100%; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px; outline: none;
+    }
+    select:focus, input:focus { border-color: var(--accent); }
+    textarea {
+      width: 100%; padding: 12px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px;
+      resize: vertical; min-height: 160px; line-height: 1.7; outline: none;
+    }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent); }
+    .btn-danger { background: var(--red); color: white; }
+    .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .stat { padding: 6px 12px; background: var(--surface2); border-radius: 8px; font-size: 12px; color: var(--text-dim); }
+    .stat strong { color: var(--text); }
+    .status { padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 13px; }
+    .status-success { background: rgba(0,184,148,0.1); border: 1px solid var(--green); color: var(--green); }
+    .status-error { background: rgba(231,76,60,0.1); border: 1px solid var(--red); color: var(--red); }
+    .status-loading { background: rgba(108,92,231,0.1); border: 1px solid var(--accent); color: var(--accent); }
+    .hidden { display: none; }
+    .mode-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+    .mode-card { padding: 14px; background: var(--surface2); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .mode-card:hover { border-color: var(--accent); }
+    .mode-card.selected { border-color: var(--accent); background: rgba(108,92,231,0.1); }
+    .mode-card h4 { font-size: 13px; margin-bottom: 4px; }
+    .mode-card p { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+    .seg-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+    .seg-table th { text-align: left; padding: 8px 10px; color: var(--text-dim); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    .seg-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .seg-table td.spk { color: var(--accent); font-weight: 600; white-space: nowrap; }
+    .seg-table td.time { color: var(--text-dim); white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; }
+    .provider-note { font-size: 11px; color: var(--text-dim); margin-top: 6px; line-height: 1.4; }
+    .rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--red); margin-right: 6px; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.2; } }
+    audio { width: 100%; margin-top: 10px; }
+    @media (max-width: 768px) { .form-row-3, .mode-cards { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Speech-to-Text Tester</h1>
+    <span class="badge">Audio → Transcript · Diarization · Translation</span>
+    <a href="/">← Back to TTS Tester</a>
+  </header>
+
+  <div class="container">
+    <!-- STEP 1: Audio input -->
+    <div class="card">
+      <h2>1 — Audio Input</h2>
+      <div class="form-group">
+        <label>Upload Voice Recording (mp3, wav, m4a, webm, ogg, flac — max 250 MB)</label>
+        <input type="file" id="audioFile" accept="audio/*,.mp3,.wav,.m4a,.webm,.ogg,.flac,.aac">
+      </div>
+      <div class="form-group" style="max-width:480px;">
+        <label>Live STT Model (for ⚡ live transcription)</label>
+        <select id="liveProvider"></select>
+        <div class="provider-note" id="liveProviderNote"></div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="recordBtn" onclick="toggleRecord()">🎙️ Record from Microphone</button>
+        <button class="btn btn-primary" id="liveBtn" onclick="toggleLiveTranscription()">⚡ Start Live Transcription</button>
+        <span id="recTimer" class="hidden" style="font-size:13px;color:var(--red);"><span class="rec-dot"></span><span id="recSecs">0:00</span></span>
+      </div>
+      <audio id="audioPreview" controls class="hidden"></audio>
+      <div id="liveWrap" class="hidden" style="margin-top:14px;">
+        <label>Live transcript <span style="color:var(--text-dim);font-weight:normal;text-transform:none;">(final speaker labels are generated and saved when you stop)</span></label>
+        <textarea id="liveTranscript" readonly placeholder="Listening…"></textarea>
+      </div>
+    </div>
+
+    <!-- STEP 2: Mode + Provider -->
+    <div class="card">
+      <h2>2 — Mode & Model</h2>
+      <label>What do you want?</label>
+      <div class="mode-cards" id="modeCards">
+        <div class="mode-card selected" data-mode="transcribe" onclick="selectMode('transcribe')">
+          <h4>📝 Transcript Only</h4>
+          <p>Plain transcription of the audio in its spoken language.</p>
+        </div>
+        <div class="mode-card" data-mode="diarize" onclick="selectMode('diarize')">
+          <h4>👥 Transcript + Diarization</h4>
+          <p>Transcript split by speaker — who said what, with timestamps.</p>
+        </div>
+        <div class="mode-card" data-mode="translate" onclick="selectMode('translate')">
+          <h4>🌐 Translate to English</h4>
+          <p>Speech in any language → English text.</p>
+        </div>
+      </div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>STT Provider</label>
+          <select id="provider" onchange="onProviderChange()"></select>
+          <div class="provider-note" id="providerNote"></div>
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <select id="model"></select>
+        </div>
+        <div class="form-group">
+          <label>Audio Language</label>
+          <select id="language"></select>
+        </div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" id="goBtn" onclick="transcribe()">Transcribe</button>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;font-size:13px;color:var(--text-dim);cursor:pointer;">
+          <input type="checkbox" id="withTimestamps" style="width:auto;"> Include timestamps
+        </label>
+        <label id="maxSpeakersWrap" class="hidden" style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;font-size:13px;color:var(--text-dim);">
+          Speakers (optional)
+          <input type="number" id="maxSpeakers" min="1" max="8" placeholder="Auto" style="width:72px;">
+        </label>
+        <label id="translateDiarizationWrap" class="hidden" style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;font-size:13px;color:var(--text-dim);cursor:pointer;">
+          <input type="checkbox" id="withDiarization" style="width:auto;"> Include speaker labels (Sarvam)
+        </label>
+      </div>
+      <div id="sttStatus"></div>
+    </div>
+
+    <!-- STEP 3: Result -->
+    <div class="card hidden" id="resultCard">
+      <h2>3 — Result</h2>
+      <div class="stats" id="resultStats"></div>
+      <label>Transcript</label>
+      <textarea id="transcriptText" readonly></textarea>
+      <div id="segmentsWrap" class="hidden">
+        <label style="margin-top:16px;">Segments</label>
+        <div style="max-height:400px;overflow-y:auto;">
+          <table class="seg-table" id="segTable">
+            <thead><tr><th>Speaker</th><th>Time</th><th>Text</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="copyTranscript()">📋 Copy</button>
+        <button class="btn btn-secondary" onclick="downloadTranscript()">⬇️ Download .txt</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let providers = {};
+    let currentMode = 'transcribe';
+    let recordedBlob = null;
+    let mediaRecorder = null;
+    let recTimerInt = null;
+    let lastResult = null;
+    let liveSocket = null;
+    let liveStream = null;
+    let liveContext = null;
+    let liveProcessor = null;
+    let liveRecorder = null;
+    let liveChunks = [];
+    let liveTimerInt = null;
+    let liveStartedAt = 0;
+    let liveProviderReady = false;
+    let liveProviders = [];
+    let liveFinalLines = [];
+    let livePartial = '';
+
+    async function init() {
+      const res = await fetch('/api/stt/providers');
+      providers = await res.json();
+      renderProviders();
+      const lp = await fetch('/api/stt/live-providers');
+      liveProviders = await lp.json();
+      const sel = document.getElementById('liveProvider');
+      sel.innerHTML = '';
+      for (const p of liveProviders) {
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        opt.textContent = `${p.label}${p.diarization ? ' 👥 live speakers' : ''}${p.configured ? '' : ' — add ' + p.envKey}`;
+        opt.disabled = !p.configured;
+        sel.appendChild(opt);
+      }
+      const firstLive = [...sel.options].find(o => !o.disabled);
+      if (firstLive) sel.value = firstLive.value;
+      sel.onchange = updateLiveNote;
+      updateLiveNote();
+    }
+
+    function updateLiveNote() {
+      const p = liveProviders.find(x => x.key === document.getElementById('liveProvider').value);
+      document.getElementById('liveProviderNote').textContent = p ? p.notes : '';
+    }
+
+    function isAdapterLiveProvider(key) {
+      return !['sarvam', 'openai'].includes(key);
+    }
+
+    function renderLiveTranscript() {
+      const area = document.getElementById('liveTranscript');
+      area.value = liveFinalLines.join('\n') + (livePartial ? (liveFinalLines.length ? '\n' : '') + livePartial : '');
+      area.scrollTop = area.scrollHeight;
+    }
+
+    function providerSupports(key, mode) {
+      const caps = providers[key]?.capabilities || {};
+      if (mode === 'diarize') return caps.diarize;
+      if (mode === 'translate') return caps.translate;
+      return caps.transcribe;
+    }
+
+    function renderProviders() {
+      const sel = document.getElementById('provider');
+      const prev = sel.value;
+      sel.innerHTML = '';
+      for (const [key, p] of Object.entries(providers)) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        const supported = providerSupports(key, currentMode);
+        opt.textContent = p.label + (p.configured ? '' : ' (no API key)') + (supported ? '' : ' — not for this mode');
+        opt.disabled = !p.configured || !supported;
+        sel.appendChild(opt);
+      }
+      const firstEnabled = [...sel.options].find(o => !o.disabled);
+      if (prev && [...sel.options].some(o => o.value === prev && !o.disabled)) sel.value = prev;
+      else if (firstEnabled) sel.value = firstEnabled.value;
+      onProviderChange();
+    }
+
+    function onProviderChange() {
+      const p = providers[document.getElementById('provider').value];
+      if (!p) return;
+      const modelSel = document.getElementById('model');
+      modelSel.innerHTML = p.models.map(m => `<option>${m}</option>`).join('');
+      const langSel = document.getElementById('language');
+      langSel.innerHTML = p.languages.map(l => `<option value="${l}">${l === 'unknown' || l === 'auto' ? 'Auto-detect' : l}</option>`).join('');
+      document.getElementById('providerNote').textContent = p.notes || '';
+    }
+
+    function selectMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-card').forEach(c => c.classList.toggle('selected', c.dataset.mode === mode));
+      const supportsOptionalDiarization = mode === 'diarize' || mode === 'translate';
+      document.getElementById('maxSpeakersWrap').classList.toggle('hidden', !supportsOptionalDiarization);
+      document.getElementById('translateDiarizationWrap').classList.toggle('hidden', mode !== 'translate');
+      renderProviders();
+    }
+
+    async function toggleRecord() {
+      const btn = document.getElementById('recordBtn');
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const chunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          recordedBlob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          const url = URL.createObjectURL(recordedBlob);
+          const prev = document.getElementById('audioPreview');
+          prev.src = url; prev.classList.remove('hidden');
+          document.getElementById('audioFile').value = '';
+          btn.textContent = '🎙️ Record Again';
+          document.getElementById('recTimer').classList.add('hidden');
+          clearInterval(recTimerInt);
+          stream.getTracks().forEach(t => t.stop());
+        };
+        mediaRecorder.start();
+        btn.textContent = '⏹ Stop Recording';
+        const t0 = Date.now();
+        document.getElementById('recTimer').classList.remove('hidden');
+        recTimerInt = setInterval(() => {
+          const s = Math.floor((Date.now() - t0) / 1000);
+          document.getElementById('recSecs').textContent = `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+        }, 500);
+      } catch (e) {
+        showStatus('sttStatus', 'Microphone access denied: ' + e.message, 'error');
+      }
+    }
+
+    function pcm16k(samples, sourceRate, targetRate = 16000) {
+      const ratio = sourceRate / targetRate;
+      const output = new Int16Array(Math.max(1, Math.round(samples.length / ratio)));
+      for (let i = 0; i < output.length; i++) {
+        const position = i * ratio;
+        const left = Math.floor(position), right = Math.min(left + 1, samples.length - 1);
+        const value = samples[left] + (samples[right] - samples[left]) * (position - left);
+        output[i] = Math.max(-1, Math.min(1, value)) * 0x7fff;
+      }
+      return output;
+    }
+
+    async function toggleLiveTranscription() {
+      if (liveSocket) { await stopLiveTranscription(); return; }
+      const provider = document.getElementById('liveProvider').value;
+      if (!provider) {
+        showStatus('sttStatus', 'No live STT model is configured yet. Add one of the API keys listed in the dropdown to .env.', 'error');
+        return;
+      }
+      if (provider === 'openai' && currentMode === 'translate') {
+        showStatus('sttStatus', 'OpenAI live mode provides transcription, not direct English translation. Use Sarvam for live translation.', 'error');
+        return;
+      }
+      liveFinalLines = [];
+      livePartial = '';
+      try {
+        liveStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        liveChunks = [];
+        liveRecorder = new MediaRecorder(liveStream);
+        liveRecorder.ondataavailable = event => { if (event.data.size) liveChunks.push(event.data); };
+        liveRecorder.start(1000);
+
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        liveSocket = new WebSocket(`${protocol}//${location.host}/api/stt/live`);
+        liveSocket.binaryType = 'arraybuffer';
+        liveSocket.onopen = () => liveSocket.send(JSON.stringify({
+          type: 'start', language: document.getElementById('language').value,
+          mode: currentMode === 'translate' ? 'translate' : 'transcribe',
+          provider,
+        }));
+        liveSocket.onmessage = event => {
+          let message;
+          try { message = JSON.parse(event.data); } catch { return; }
+          if (message.type === 'error') { showStatus('sttStatus', message.error, 'error'); return; }
+          if (message.type === 'ready' || message.type === 'session.updated') { liveProviderReady = true; return; }
+          if (message.type === 'transcript') {
+            // Normalized adapter message: { transcript, speaker, final }
+            const line = (message.speaker != null ? `Speaker ${message.speaker}: ` : '') + message.transcript;
+            if (message.final) { liveFinalLines.push(line); livePartial = ''; }
+            else { livePartial = line; }
+            renderLiveTranscript();
+            return;
+          }
+          const text = message.data?.transcript || message.transcript || message.data?.translation || message.delta;
+          if (text) {
+            liveFinalLines.push(text);
+            renderLiveTranscript();
+          }
+        };
+        liveSocket.onerror = () => showStatus('sttStatus', 'Live connection failed. Check the Sarvam key and network.', 'error');
+
+        liveContext = new AudioContext();
+        const source = liveContext.createMediaStreamSource(liveStream);
+        liveProcessor = liveContext.createScriptProcessor(4096, 1, 1);
+        liveProcessor.onaudioprocess = event => {
+          if (liveSocket?.readyState !== WebSocket.OPEN || !liveProviderReady) return;
+          const pcm = pcm16k(event.inputBuffer.getChannelData(0), liveContext.sampleRate, provider === 'openai' ? 24000 : 16000);
+          liveSocket.send(pcm.buffer);
+        };
+        source.connect(liveProcessor);
+        liveProcessor.connect(liveContext.destination);
+        document.getElementById('liveWrap').classList.remove('hidden');
+        document.getElementById('liveTranscript').value = '';
+        document.getElementById('liveBtn').textContent = '⏹ Stop & Save Diarized Transcript';
+        document.getElementById('recordBtn').disabled = true;
+        liveStartedAt = Date.now();
+        document.getElementById('recTimer').classList.remove('hidden');
+        liveTimerInt = setInterval(() => {
+          const seconds = Math.floor((Date.now() - liveStartedAt) / 1000);
+          document.getElementById('recSecs').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+        }, 500);
+        showStatus('sttStatus', 'Listening live. On stop, the complete recording will be diarized and saved.', 'loading');
+      } catch (error) {
+        showStatus('sttStatus', 'Unable to start live transcription: ' + error.message, 'error');
+        await stopLiveTranscription(false);
+      }
+    }
+
+    async function stopLiveTranscription(saveFinal = true) {
+      const socket = liveSocket;
+      const selectedProvider = document.getElementById('liveProvider').value;
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'flush', provider: selectedProvider }));
+      if (liveProcessor) { liveProcessor.disconnect(); liveProcessor = null; }
+      if (liveContext) { await liveContext.close(); liveContext = null; }
+      if (liveRecorder?.state === 'recording') liveRecorder.stop();
+      const recorder = liveRecorder;
+      if (recorder) await new Promise(resolve => { recorder.onstop = resolve; });
+      if (liveStream) liveStream.getTracks().forEach(track => track.stop());
+      setTimeout(() => { if (socket?.readyState === WebSocket.OPEN) socket.close(); }, 800);
+      liveSocket = null; liveRecorder = null; liveStream = null; liveProviderReady = false;
+      clearInterval(liveTimerInt);
+      document.getElementById('recTimer').classList.add('hidden');
+      document.getElementById('liveBtn').textContent = '⚡ Start Live Transcription';
+      document.getElementById('recordBtn').disabled = false;
+      if (!saveFinal) return;
+      const durationSeconds = Math.round((Date.now() - liveStartedAt) / 1000);
+      if (liveChunks.length) {
+        recordedBlob = new Blob(liveChunks, { type: recorder?.mimeType || 'audio/webm' });
+        const preview = document.getElementById('audioPreview');
+        preview.src = URL.createObjectURL(recordedBlob); preview.classList.remove('hidden');
+      }
+
+      if (isAdapterLiveProvider(selectedProvider)) {
+        // Live providers with speaker labels: save the live transcript itself
+        const transcript = liveFinalLines.join('\n');
+        if (!transcript.trim()) { showStatus('sttStatus', 'No speech captured — nothing to save.', 'error'); return; }
+        showStatus('sttStatus', 'Saving live speaker-wise transcript…', 'loading');
+        try {
+          const p = liveProviders.find(x => x.key === selectedProvider);
+          const res = await fetch('/api/stt/live-save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              provider: selectedProvider,
+              model: p ? p.label.replace(/\s+/g, '-').toLowerCase() : selectedProvider,
+              transcript,
+              language: document.getElementById('language').value,
+              durationSeconds,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          document.getElementById('transcriptText').value = transcript;
+          document.getElementById('resultStats').innerHTML =
+            `<span class="stat">Provider <strong>${selectedProvider}</strong></span>` +
+            `<span class="stat">Mode <strong>LIVE${p?.diarization ? ' + speakers' : ''}</strong></span>` +
+            `<span class="stat">Duration <strong>${durationSeconds}s</strong></span>` +
+            `<span class="stat">Saved <strong>${data.savedTo}</strong></span>`;
+          document.getElementById('segmentsWrap').classList.add('hidden');
+          document.getElementById('resultCard').classList.remove('hidden');
+          lastResult = { provider: selectedProvider, mode: 'live', transcript, segmentText: '' };
+          showStatus('sttStatus', `Live transcript saved: ${data.savedTo}`, 'success');
+        } catch (err) {
+          showStatus('sttStatus', 'Save failed: ' + err.message, 'error');
+        }
+        return;
+      }
+
+      if (!liveChunks.length) return;
+      showStatus('sttStatus', 'Creating and saving the final speaker-labelled transcript…', 'loading');
+      await transcribe({ forceDiarization: true, finalProvider: selectedProvider === 'openai' ? 'sarvam' : undefined });
+    }
+
+    function showStatus(id, msg, type) {
+      document.getElementById(id).innerHTML = `<div class="status status-${type}">${msg}</div>`;
+    }
+
+    async function transcribe(options = {}) {
+      const fileInput = document.getElementById('audioFile');
+      let file = fileInput.files[0];
+      if (!file && recordedBlob) {
+        file = new File([recordedBlob], 'recording.webm', { type: recordedBlob.type });
+      }
+      if (!file) { showStatus('sttStatus', 'Please upload a recording or record from the microphone first.', 'error'); return; }
+
+      const provider = options.finalProvider || document.getElementById('provider').value;
+      const requestMode = options.forceDiarization && currentMode !== 'translate' ? 'diarize' : currentMode;
+      const model = document.getElementById('model').value;
+      const language = document.getElementById('language').value;
+
+      const fd = new FormData();
+      fd.append('audio', file, file.name);
+      fd.append('provider', provider);
+      fd.append('mode', requestMode);
+      fd.append('language', language);
+      fd.append('model', model);
+      fd.append('withTimestamps', document.getElementById('withTimestamps').checked);
+      const withDiarization = options.forceDiarization || requestMode === 'diarize' || document.getElementById('withDiarization').checked;
+      fd.append('withDiarization', withDiarization);
+      const maxSpeakers = document.getElementById('maxSpeakers').value;
+      if (withDiarization && maxSpeakers) fd.append('maxSpeakers', maxSpeakers);
+
+      document.getElementById('goBtn').disabled = true;
+      const batchNote = provider === 'sarvam' && (requestMode === 'diarize' || requestMode === 'translate') ? ' Sarvam Batch processing can take a few minutes.' : '';
+      showStatus('sttStatus', `Transcribing with ${providers[provider].label} (${requestMode})... this can take a moment for long audio.${batchNote}`, 'loading');
+
+      try {
+        const res = await fetch('/api/stt/transcribe', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        lastResult = data;
+
+        document.getElementById('transcriptText').value = data.transcript;
+        document.getElementById('resultStats').innerHTML =
+          `<span class="stat">Provider <strong>${data.provider}</strong></span>` +
+          `<span class="stat">Model <strong>${data.model}</strong></span>` +
+          `<span class="stat">Mode <strong>${data.mode}</strong></span>` +
+          `<span class="stat">Language <strong>${data.detectedLanguage || '—'}</strong></span>` +
+          `<span class="stat">Latency <strong>${(data.latencyMs/1000).toFixed(1)}s</strong></span>` +
+          `<span class="stat">Saved <strong>${data.savedTo}</strong></span>`;
+
+        const segWrap = document.getElementById('segmentsWrap');
+        const tbody = document.querySelector('#segTable tbody');
+        tbody.innerHTML = '';
+        if (data.segments && data.segments.length > 0) {
+          for (const s of data.segments) {
+            const tr = document.createElement('tr');
+            const time = s.start != null ? `${fmt(s.start)}${s.end != null ? '–' + fmt(s.end) : ''}` : '';
+            tr.innerHTML = `<td class="spk">${s.speaker != null ? 'Speaker ' + s.speaker : '—'}</td><td class="time">${time}</td><td></td>`;
+            tr.lastElementChild.textContent = s.text;
+            tbody.appendChild(tr);
+          }
+          segWrap.classList.remove('hidden');
+        } else {
+          segWrap.classList.add('hidden');
+        }
+
+        document.getElementById('resultCard').classList.remove('hidden');
+        showStatus('sttStatus', 'Done!', 'success');
+      } catch (err) {
+        showStatus('sttStatus', 'Error: ' + err.message, 'error');
+      } finally {
+        document.getElementById('goBtn').disabled = false;
+      }
+    }
+
+    function fmt(sec) {
+      const m = Math.floor(sec/60), s = Math.floor(sec%60);
+      return `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    function copyTranscript() {
+      navigator.clipboard.writeText(document.getElementById('transcriptText').value);
+      showStatus('sttStatus', 'Copied to clipboard.', 'success');
+    }
+
+    function downloadTranscript() {
+      if (!lastResult) return;
+      const parts = (lastResult.mode === 'diarize' || lastResult.segments?.some(segment => segment.speaker !== null && segment.speaker !== undefined))
+        ? [lastResult.segmentText || lastResult.transcript]
+        : [lastResult.transcript, ...(lastResult.segmentText ? ['', '--- SEGMENTS ---', lastResult.segmentText] : [])];
+      const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `transcript_${lastResult.provider}_${lastResult.mode}.txt`;
+      a.click();
+    }
+
+    document.getElementById('audioFile').addEventListener('change', () => {
+      const f = document.getElementById('audioFile').files[0];
+      if (f) {
+        recordedBlob = null;
+        const prev = document.getElementById('audioPreview');
+        prev.src = URL.createObjectURL(f);
+        prev.classList.remove('hidden');
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

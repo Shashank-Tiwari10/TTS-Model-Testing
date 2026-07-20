@@ -128,7 +128,7 @@ export function getConfig() {
     ],
     configured,
     configNote: hfMode
-      ? "Using HuggingFace Inference API"
+      ? "HuggingFace serverless no longer hosts indic-parler-tts (400: model not supported) — self-host and set AI4BHARAT_API_URL to use this provider"
       : configured
         ? `Using self-hosted at ${process.env.AI4BHARAT_API_URL}`
         : "Set AI4BHARAT_API_URL (self-hosted) or AI4BHARAT_USE_HF=true + HF_API_TOKEN",

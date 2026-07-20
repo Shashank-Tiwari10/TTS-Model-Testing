@@ -6,7 +6,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "brief:import": "node src/daily-brief/import-plan.js",
+    "brief:today": "node src/daily-brief/send-today.js",
+    "brief:server": "node src/daily-brief/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-polly": "^3.1084.0",
@@ -16,7 +19,10 @@
     "express": "^5.1.0",
     "microsoft-cognitiveservices-speech-sdk": "^1.40.0",
     "multer": "^1.4.5-lts.1",
-    "openai": "^4.67.3"
+    "nodemailer": "^9.0.3",
+    "openai": "^4.67.3",
+    "ws": "^8.21.1",
+    "xlsx": "^0.18.5"
   },
   "engines": {
     "node": ">=18"

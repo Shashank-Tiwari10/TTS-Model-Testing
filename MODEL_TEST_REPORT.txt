@@ -1,0 +1,66 @@
+MODEL VERIFICATION REPORT — 2026-07-17
+Test audio: Hindi TTS sample (32.4 KB mp3) | Test text: "नमस्ते, यह एक परीक्षण है।"
+
+=================================================================
+STT (Speech-to-Text) — http://localhost:3500/stt.html
+=================================================================
+[PASS] sarvam / saarika:v2.5 / transcribe      — 541ms, hi-IN, correct Hindi transcript
+[PASS] sarvam / saaras:v2.5  / translate       — 417ms, clean English translation
+[PASS] openai / whisper-1 / transcribe          — 3.9s, hi-IN
+[PASS] openai / gpt-4o-transcribe / transcribe  — 2.2s, hi-IN
+[PASS] openai / gpt-4o-mini-transcribe          — 3.4s, hi-IN
+[PASS] openai / whisper-1 / translate           — 1.2s, English out
+[PASS] azure / fast-transcription / transcribe  — 636ms, hi-IN, 1 segment
+[PASS] azure / fast-transcription / diarize     — 873ms, speaker + timestamps
+[FAIL] elevenlabs / scribe_v1 (both modes)      — 401: API key missing "speech_to_text"
+       permission. FIX: enable Speech-to-Text permission on the key in the
+       ElevenLabs dashboard, update ELEVENLABS_API_KEY in .env. Code is ready.
+[REMOVED] sarvam / saarika:v2 — deprecated by Sarvam (API returns 400), removed from UI.
+
+=================================================================
+TTS (Text-to-Speech) — http://localhost:3500/
+=================================================================
+[PASS] sarvam / bulbul:v3          — 31.8 KB, 1.3s
+[PASS] sarvam / bulbul:v2          — 29.4 KB, 0.5s
+[PASS] openai / tts-1              — 34.7 KB, 2.4s
+[PASS] openai / tts-1-hd           — 35.2 KB, 3.1s
+[PASS] openai / gpt-4o-mini-tts    — 42.4 KB, 2.5s  (latest OpenAI TTS)
+[PASS] google / neural2            — 25.2 KB, 0.9s  (earlier "crash" was a dev-server
+       restart during testing, not a Google bug — retested twice, stable)
+[PASS] azure / azure-neural        — 13.6 KB, 0.5s (hi-IN-SwaraNeural)
+[PASS] gnani / vachana-voice-v3    — 73.5 KB, 1.0s
+[FAIL] elevenlabs (all 3 models)   — 402: account out of credits. FIX: add credits
+       or wait for monthly quota reset. Code is fine.
+[FAIL] knowlez / api-tts-v1        — 402: no credits on Knowlez account.
+[FAIL] ai4bharat / indic-parler-tts — HuggingFace serverless no longer hosts this
+       model ("Model not supported by provider hf-inference"). Needs self-hosting
+       (set AI4BHARAT_API_URL). Marked in UI config note.
+[SKIP] bharatgen — not configured (self-host only)
+[SKIP] aws polly — not configured (no AWS keys)
+[REMOVED] elevenlabs / eleven_monolingual_v1 — retired by ElevenLabs (400), removed from UI.
+
+=================================================================
+TRANSLATION (Voice Command pipeline)
+=================================================================
+[PASS] gpt-5.6-sol    — works
+[PASS] gpt-5.6-terra  — works (recommended default)
+[PASS] gpt-5.6-luna   — works (earlier 401 was transient)
+[PASS] gpt-4o-mini    — works
+[PASS] gpt-4o         — works
+[FAIL] gemini         — 429 quota/rate limit exhausted on all models (2.5-flash,
+       2.5-flash-lite, 2.0-flash) after today's heavy testing. Code is correct;
+       will recover when the Gemini free-tier quota resets. Retired gemini-1.5-flash
+       removed from the fallback list. Error message now clearly says "quota exceeded".
+
+=================================================================
+OUTPUT FILES & LOGS
+=================================================================
+- STT transcripts:  "STT Transcripts/STT_{provider}_{mode}_{timestamp}.txt"  (human-readable)
+                    "STT Transcripts/STT_{provider}_{mode}_{timestamp}.json" (full metadata)
+- STT run log:      "STT Transcripts/STT_run_log.txt" (one line per run, incl. errors)
+- TTS audio:        "TTS Voice/{model}/..."
+- Voice command:    "Training Module/Day{XX}_{provider}_{model}_{Tone}/" + pipeline-logs/
+- Server terminal:  every route logs ➜ INPUT / ✓ OUTPUT / ✗ ERROR with stack traces
+
+SCORE: 20 working model/mode combinations. All failures are account-side
+(credits/permissions/quota) or provider-side (model retired) — zero code defects open.
