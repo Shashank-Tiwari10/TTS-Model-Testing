@@ -31,19 +31,27 @@ function saveProgress(date, doneIds, notDoneIds) {
   return data;
 }
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "shashank@admin.com";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "royal2026";
-const READ_ONLY = Boolean(process.env.VERCEL); // no disk writes / no generation on Vercel
+const ADMINS = [
+  { email: (process.env.ADMIN_EMAIL || "shashank@admin.com").toLowerCase(), password: process.env.ADMIN_PASSWORD || "royal2026" },
+  { email: "gajraj@admin.com", password: "royal2026" },
+];
+const READ_ONLY = Boolean(process.env.VERCEL);
 
-function sessionToken() {
-  return createHmac("sha256", `${ADMIN_EMAIL}|${ADMIN_PASSWORD}`).update("zahab-brief-admin").digest("hex");
+function sessionToken(email, password) {
+  return createHmac("sha256", `${email}|${password}`).update("zahab-brief-admin").digest("hex");
+}
+function matchAdmin(email, password) {
+  const e = String(email).trim().toLowerCase();
+  return ADMINS.find(a => a.email === e && a.password === password);
 }
 function isAuthed(req) {
   const m = /brief_session=([a-f0-9]{64})/.exec(req.headers.cookie || "");
   if (!m) return false;
   const got = Buffer.from(m[1], "hex");
-  const want = Buffer.from(sessionToken(), "hex");
-  return got.length === want.length && timingSafeEqual(got, want);
+  return ADMINS.some(a => {
+    const want = Buffer.from(sessionToken(a.email, a.password), "hex");
+    return got.length === want.length && timingSafeEqual(got, want);
+  });
 }
 function requireAuth(req, res, next) {
   if (isAuthed(req)) return next();
@@ -56,8 +64,9 @@ export function createApp() {
 
   app.post("/api/login", (req, res) => {
     const { email, password } = req.body || {};
-    if (String(email).trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
-      res.setHeader("Set-Cookie", `brief_session=${sessionToken()}; HttpOnly; Path=/; Max-Age=604800`);
+    const admin = matchAdmin(email, password);
+    if (admin) {
+      res.setHeader("Set-Cookie", `brief_session=${sessionToken(admin.email, admin.password)}; HttpOnly; Path=/; Max-Age=604800`);
       return res.json({ ok: true });
     }
     res.status(401).json({ error: "Email or password is incorrect." });
@@ -258,8 +267,12 @@ const PAGE = `<!doctype html>
         <div class="sub">These settings drive every generation: the working plan for the day is scripted in English, translated by the OpenAI model below, and spoken by the Azure voice below. Saved settings are used by the local console and, once pushed, by the nightly 8 PM IST GitHub run.</div>
         <label>Azure Voice (voice note)</label><select id="setVoice"></select>
         <label>OpenAI Translation Model</label><select id="setModel"></select>
-        <label>Deliver to Email</label><input id="setEmail" type="email">
-        <label>Deliver to WhatsApp Number</label><input id="setPhone" type="text">
+        <h2 style="margin-top:20px">Recipients</h2>
+        <div class="sub">Briefs and work reports are sent to all recipients below.</div>
+        <label>Recipient 1 — Email</label><input id="setEmail" type="email">
+        <label>Recipient 1 — WhatsApp Number</label><input id="setPhone" type="text">
+        <label>Recipient 2 — Email</label><input id="setEmail2" type="email">
+        <label>Recipient 2 — WhatsApp Number</label><input id="setPhone2" type="text">
         <label>Local Auto-Send Time (IST, Mon–Sat — only when the local server runs with BRIEF_AUTO_SEND=true; the cloud run is fixed at 20:00 IST in the GitHub workflow)</label><input id="setTime" type="text" placeholder="06:30">
         <div class="row"><button id="setSave" onclick="saveSetup()">Save Setup</button><span id="setStatus" class="sub"></span></div>
       </div>
@@ -439,18 +452,22 @@ async function loadSetup() {
   $("setModel").innerHTML = r.models.map(m => \`<option value="\${m}" \${m === r.settings.translateModel ? "selected" : ""}>\${m}</option>\`).join("");
   $("setEmail").value = r.settings.toEmail;
   $("setPhone").value = r.settings.toPhone;
+  $("setEmail2").value = r.settings.toEmail2 || "";
+  $("setPhone2").value = r.settings.toPhone2 || "";
   $("setTime").value = r.settings.localSendTime;
   if (r.readOnly) {
     $("setSave").classList.add("hidden");
     $("setStatus").textContent = "View-only online — change setup from the local console (or edit settings.json) and push; the nightly run and this site follow it.";
-    for (const id of ["setVoice","setModel","setEmail","setPhone","setTime"]) $(id).disabled = true;
+    for (const id of ["setVoice","setModel","setEmail","setPhone","setEmail2","setPhone2","setTime"]) $(id).disabled = true;
   }
 }
 async function saveSetup() {
   $("setStatus").textContent = "Saving…";
   const r = await api("/api/settings", { method: "POST", body: JSON.stringify({
     voice: $("setVoice").value, translateModel: $("setModel").value,
-    toEmail: $("setEmail").value, toPhone: $("setPhone").value, localSendTime: $("setTime").value,
+    toEmail: $("setEmail").value, toPhone: $("setPhone").value,
+    toEmail2: $("setEmail2").value, toPhone2: $("setPhone2").value,
+    localSendTime: $("setTime").value,
   })});
   $("setStatus").textContent = r.error ? r.error : "Saved — next generation uses this setup. Push to GitHub to apply it to the nightly cloud run too.";
 }

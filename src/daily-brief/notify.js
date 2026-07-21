@@ -8,18 +8,49 @@ import axios from "axios";
 import { markSent } from "./generate.js";
 import { getSettings } from "./settings.js";
 
-export async function sendEmail(brief) {
-  const TO_EMAIL = getSettings().toEmail;
+function allEmails() {
+  const s = getSettings();
+  return [s.toEmail, s.toEmail2].filter(Boolean).join(", ");
+}
+function allPhones() {
+  const s = getSettings();
+  return [s.toPhone, s.toPhone2].filter(Boolean);
+}
+function makeTransporter() {
   const { SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_USER || !SMTP_PASS) {
-    return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
-  }
-  const transporter = nodemailer.createTransport({
+  if (!SMTP_USER || !SMTP_PASS) return null;
+  return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "465"),
     secure: (process.env.SMTP_PORT || "465") === "465",
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+}
+async function sendWhatsAppTo(phone, body) {
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM } = process.env;
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
+    return { ok: false, skipped: true, detail: "Twilio credentials not set in .env — WhatsApp skipped" };
+  }
+  try {
+    const resp = await axios.post(
+      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+      new URLSearchParams({
+        From: `whatsapp:${TWILIO_WHATSAPP_FROM}`,
+        To: `whatsapp:${phone}`,
+        Body: body.slice(0, 1500),
+      }),
+      { auth: { username: TWILIO_ACCOUNT_SID, password: TWILIO_AUTH_TOKEN } }
+    );
+    return { ok: true, detail: `sent to ${phone} (${resp.data.sid})` };
+  } catch (err) {
+    return { ok: false, detail: err.response?.data?.message || err.message };
+  }
+}
+
+export async function sendEmail(brief) {
+  const toAll = allEmails();
+  const transporter = makeTransporter();
+  if (!transporter) return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
   const subject = `Zahab House Cleaning Brief — ${brief.date} (Day ${brief.day}, ${brief.weekday})`;
   const html = `
     <div style="font-family:Georgia,serif;max-width:640px;margin:auto;color:#172554">
@@ -34,66 +65,45 @@ export async function sendEmail(brief) {
     </div>`;
   try {
     const info = await transporter.sendMail({
-      from: `"VarMC Daily Brief" <${SMTP_USER}>`,
-      to: TO_EMAIL,
+      from: `"VarMC Daily Brief" <${process.env.SMTP_USER}>`,
+      to: toAll,
       subject,
       html,
       attachments: [{ filename: `ZahabBrief_${brief.date}_Day${brief.day}.mp3`, path: brief.audioPath }],
     });
-    return { ok: true, detail: `sent to ${TO_EMAIL} (${info.messageId})` };
+    return { ok: true, detail: `sent to ${toAll} (${info.messageId})` };
   } catch (err) {
     return { ok: false, detail: err.message };
   }
 }
 
 export async function sendWhatsApp(brief) {
-  const TO_PHONE = getSettings().toPhone;
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM } = process.env;
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
-    return { ok: false, skipped: true, detail: "Twilio credentials not set in .env — WhatsApp skipped" };
-  }
+  const phones = allPhones();
+  if (!phones.length) return { ok: false, skipped: true, detail: "No phone numbers configured" };
   const body =
     `*${brief.clientName} House — Cleaning Brief*\n${brief.weekday}, ${brief.date} · Day ${brief.day} · ${brief.totalTasks} tasks\n\n` +
     `${brief.hindiRoman}\n\n— Voice note & English translation sent by email.`;
-  try {
-    const resp = await axios.post(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      new URLSearchParams({
-        From: `whatsapp:${TWILIO_WHATSAPP_FROM}`,
-        To: `whatsapp:${TO_PHONE}`,
-        Body: body.slice(0, 1500),
-      }),
-      { auth: { username: TWILIO_ACCOUNT_SID, password: TWILIO_AUTH_TOKEN } }
-    );
-    return { ok: true, detail: `sent to ${TO_PHONE} (${resp.data.sid})` };
-  } catch (err) {
-    return { ok: false, detail: err.response?.data?.message || err.message };
-  }
+  const results = await Promise.all(phones.map(p => sendWhatsAppTo(p, body)));
+  const detail = phones.map((p, i) => `${p}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
+  return { ok: results.some(r => r.ok), detail };
 }
 
 export async function deliverBrief(brief) {
-  const { toEmail, toPhone } = getSettings();
+  const toAll = allEmails();
+  const phones = allPhones();
   const email = await sendEmail(brief);
   const whatsapp = await sendWhatsApp(brief);
   const meta = markSent(brief.id, {
-    email: { ...email, at: new Date().toISOString(), to: toEmail },
-    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: toPhone },
+    email: { ...email, at: new Date().toISOString(), to: toAll },
+    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: phones.join(", ") },
   });
   return { email, whatsapp, meta };
 }
 
 export async function sendWorkReport({ date, weekday, day, week, clientName, done, notDone, totalMinutes }) {
-  const TO_EMAIL = getSettings().toEmail;
-  const { SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_USER || !SMTP_PASS) {
-    return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
-  }
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.SMTP_PORT || "465"),
-    secure: (process.env.SMTP_PORT || "465") === "465",
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  const toAll = allEmails();
+  const transporter = makeTransporter();
+  if (!transporter) return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
   const doneRows = done.map(t => `<tr style="background:#f0fdf4"><td style="padding:6px 10px">${escapeHtml(t.spaceName)}</td><td style="padding:6px 10px">${escapeHtml(t.object)}</td><td style="padding:6px 10px">${escapeHtml(t.work)}</td><td style="padding:6px 10px">${t.timeMinutes} min</td><td style="padding:6px 10px;color:#16a34a">✓ Done</td></tr>`).join("");
   const notDoneRows = notDone.map(t => `<tr style="background:#fef2f2"><td style="padding:6px 10px">${escapeHtml(t.spaceName)}</td><td style="padding:6px 10px">${escapeHtml(t.object)}</td><td style="padding:6px 10px">${escapeHtml(t.work)}</td><td style="padding:6px 10px">${t.timeMinutes} min</td><td style="padding:6px 10px;color:#dc2626">✗ Not Done</td></tr>`).join("");
   const subject = `Zahab House — Work Report · ${weekday}, ${date} (Day ${day})`;
@@ -110,40 +120,26 @@ export async function sendWorkReport({ date, weekday, day, week, clientName, don
     </div>`;
   try {
     const info = await transporter.sendMail({
-      from: `"VarMC Daily Brief" <${SMTP_USER}>`,
-      to: TO_EMAIL,
+      from: `"VarMC Daily Brief" <${process.env.SMTP_USER}>`,
+      to: toAll,
       subject,
       html,
     });
-    return { ok: true, detail: `sent to ${TO_EMAIL} (${info.messageId})` };
+    return { ok: true, detail: `sent to ${toAll} (${info.messageId})` };
   } catch (err) {
     return { ok: false, detail: err.message };
   }
 }
 
 export async function sendWorkReportWhatsApp({ date, weekday, day, clientName, done, notDone }) {
-  const TO_PHONE = getSettings().toPhone;
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM } = process.env;
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
-    return { ok: false, skipped: true, detail: "Twilio credentials not set in .env — WhatsApp skipped" };
-  }
+  const phones = allPhones();
+  if (!phones.length) return { ok: false, skipped: true, detail: "No phone numbers configured" };
   const doneList = done.length ? done.map(t => `  ✓ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
   const notDoneList = notDone.length ? notDone.map(t => `  ✗ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
   const body = `*${clientName} House — Work Report*\n${weekday}, ${date} · Day ${day}\n\n*Done (${done.length}):*\n${doneList}\n\n*Not Done (${notDone.length}):*\n${notDoneList}`;
-  try {
-    const resp = await axios.post(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      new URLSearchParams({
-        From: `whatsapp:${TWILIO_WHATSAPP_FROM}`,
-        To: `whatsapp:${TO_PHONE}`,
-        Body: body.slice(0, 1500),
-      }),
-      { auth: { username: TWILIO_ACCOUNT_SID, password: TWILIO_AUTH_TOKEN } }
-    );
-    return { ok: true, detail: `sent to ${TO_PHONE} (${resp.data.sid})` };
-  } catch (err) {
-    return { ok: false, detail: err.response?.data?.message || err.message };
-  }
+  const results = await Promise.all(phones.map(p => sendWhatsAppTo(p, body)));
+  const detail = phones.map((p, i) => `${p}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
+  return { ok: results.some(r => r.ok), detail };
 }
 
 function escapeHtml(s) {

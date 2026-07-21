@@ -33,6 +33,14 @@ export function istDateParts(date = new Date()) {
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function slug(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function taskId(t) {
+  return `${slug(t.spaceName)}_${slug(t.object)}_${slug(t.work)}`;
+}
+
 // Working-day distance from the anchor (counting only Mon–Sat), for an IST calendar date.
 export function scheduleForDate(isoDate) {
   const plan = loadPlan();
@@ -49,8 +57,16 @@ export function scheduleForDate(isoDate) {
   const day = (workingDays % plan.totalDays) + 1;
   const dayInWeek = (day - 1) % 6;
   const week = Math.floor((day - 1) / 6) + 1;
-  const taskIds = plan.dayTasks[day - 1] || [];
-  const tasks = taskIds.map((id) => ({ id, ...plan.tasks[id] }));
+  const taskIdx = plan.dayTasks[day - 1] || [];
+  const raw = taskIdx.map((i) => plan.tasks[i]);
+  const seen = new Map();
+  const tasks = raw.map((t) => {
+    let id = taskId(t);
+    const count = (seen.get(id) || 0) + 1;
+    seen.set(id, count);
+    if (count > 1) id += `-${count}`;
+    return { id, ...t };
+  });
   return {
     off: false,
     date: isoDate,
