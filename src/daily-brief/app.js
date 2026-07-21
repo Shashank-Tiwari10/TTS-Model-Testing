@@ -7,10 +7,10 @@
 import "./env.js";
 import express from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { istDateParts, scheduleForDate } from "./plan.js";
+import { istDateParts, scheduleForDate, allTasksWithIds, taskSchedule, dateForDay, loadPlan } from "./plan.js";
 import { generateBrief, loadBrief, listBriefs, BRIEFS_DIR } from "./generate.js";
 import { deliverBrief, sendWorkReport, sendWorkReportWhatsApp } from "./notify.js";
 import { getSettings, saveSettings, AZURE_VOICES, TRANSLATE_MODELS } from "./settings.js";
@@ -24,11 +24,21 @@ function loadProgress(date) {
   try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
 }
 
-function saveProgress(date, doneIds, notDoneIds) {
+function saveProgress(date, doneIds, notDoneIds, extraDone) {
   mkdirSync(PROGRESS_DIR, { recursive: true });
-  const data = { date, doneIds, notDoneIds, savedAt: new Date().toISOString() };
+  const data = { date, doneIds, notDoneIds, extraDone: extraDone || [], savedAt: new Date().toISOString() };
   writeFileSync(join(PROGRESS_DIR, `${date}.json`), JSON.stringify(data, null, 2));
   return data;
+}
+
+function loadAllProgress() {
+  if (!existsSync(PROGRESS_DIR)) return {};
+  const files = readdirSync(PROGRESS_DIR).filter(f => f.endsWith(".json"));
+  const all = {};
+  for (const f of files) {
+    try { all[f.replace(".json", "")] = JSON.parse(readFileSync(join(PROGRESS_DIR, f), "utf8")); } catch {}
+  }
+  return all;
 }
 
 const ADMINS = [
@@ -83,7 +93,7 @@ export function createApp() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
     const sched = scheduleForDate(date);
     const prog = loadProgress(date);
-    res.json({ ...sched, progress: prog ? { doneIds: prog.doneIds, notDoneIds: prog.notDoneIds, savedAt: prog.savedAt } : null });
+    res.json({ ...sched, progress: prog ? { doneIds: prog.doneIds, notDoneIds: prog.notDoneIds, extraDone: prog.extraDone || [], savedAt: prog.savedAt } : null });
   });
 
   // Load saved progress (tick marks) for a date.
@@ -93,35 +103,69 @@ export function createApp() {
     res.json(prog || { date, doneIds: [], notDoneIds: [] });
   });
 
-  // Save work progress: split tasks into done / not-done.
+  // Save work progress: split tasks into done / not-done + optional extra tasks.
   app.post("/api/plan/progress", requireAuth, (req, res) => {
     if (READ_ONLY) return res.status(400).json({ error: "Progress tracking is not available online. Use the local console." });
-    const { date, doneIds, notDoneIds } = req.body || {};
+    const { date, doneIds, notDoneIds, extraDone } = req.body || {};
     if (!date || !Array.isArray(doneIds) || !Array.isArray(notDoneIds)) {
       return res.status(400).json({ error: "date, doneIds[], and notDoneIds[] are required" });
     }
-    res.json({ ok: true, progress: saveProgress(date, doneIds, notDoneIds) });
+    res.json({ ok: true, progress: saveProgress(date, doneIds, notDoneIds, extraDone) });
   });
 
   // Share work report via email + WhatsApp. Accepts doneIds/notDoneIds inline to avoid race conditions.
   app.post("/api/plan/share", requireAuth, async (req, res) => {
-    const { date, doneIds, notDoneIds } = req.body || {};
+    const { date, doneIds, notDoneIds, extraDone } = req.body || {};
     if (!date) return res.status(400).json({ error: "date is required" });
     if (Array.isArray(doneIds) && Array.isArray(notDoneIds) && !READ_ONLY) {
-      saveProgress(date, doneIds, notDoneIds);
+      saveProgress(date, doneIds, notDoneIds, extraDone);
     }
-    const prog = loadProgress(date);
     const sched = scheduleForDate(date);
     if (sched.off) return res.status(400).json({ error: sched.reason });
     const taskMap = new Map(sched.tasks.map(t => [t.id, t]));
-    const useDoneIds = prog?.doneIds || doneIds || [];
-    const useNotDoneIds = prog?.notDoneIds || notDoneIds || [];
+    const useDoneIds = doneIds || [];
+    const useNotDoneIds = notDoneIds || [];
     const done = useDoneIds.map(id => taskMap.get(id)).filter(Boolean);
     const notDone = useNotDoneIds.map(id => taskMap.get(id)).filter(Boolean);
     const report = { date, weekday: sched.weekday, day: sched.day, week: sched.week, clientName: sched.clientName, done, notDone, totalMinutes: sched.totalMinutes };
     const email = await sendWorkReport(report);
     const whatsapp = await sendWorkReportWhatsApp(report);
     res.json({ email, whatsapp });
+  });
+
+  // Tracking: per-task compliance across all recorded days.
+  app.get("/api/tracking", requireAuth, (_req, res) => {
+    const tasks = allTasksWithIds();
+    const sched = taskSchedule();
+    const allProg = loadAllProgress();
+    const plan = loadPlan();
+    const anchor = plan.quarterAnchor;
+    const todayIso = istDateParts().iso;
+    const result = tasks.map(t => {
+      const assignments = (sched.get(t.id) || []).filter(a => a.date <= todayIso);
+      let doneCount = 0, doneOnDates = [];
+      for (const a of assignments) {
+        const prog = allProg[a.date];
+        if (prog && prog.doneIds?.includes(t.id)) { doneCount++; doneOnDates.push(a.date); }
+      }
+      for (const [date, prog] of Object.entries(allProg)) {
+        if (prog.extraDone?.includes(t.id) && !doneOnDates.includes(date)) {
+          doneCount++; doneOnDates.push(date);
+        }
+      }
+      const scheduled = assignments.length;
+      const compliance = scheduled ? Math.round(doneCount / scheduled * 100) : null;
+      const lastDone = doneOnDates.sort().pop() || null;
+      return { id: t.id, spaceName: t.spaceName, object: t.object, work: t.work, freq: t.freq, phase: t.phase,
+               scheduled, doneCount, compliance, lastDone, status: compliance === null ? "upcoming" : compliance >= 80 ? "on-track" : compliance >= 50 ? "partial" : "behind" };
+    });
+    res.json({ anchor, today: todayIso, tasks: result });
+  });
+
+  // All tasks (for extra-task picker).
+  app.get("/api/plan/all-tasks", requireAuth, (_req, res) => {
+    const tasks = allTasksWithIds();
+    res.json(tasks.map(t => ({ id: t.id, spaceName: t.spaceName, object: t.object, work: t.work, freq: t.freq, phase: t.phase, timeMinutes: t.timeMinutes })));
   });
 
   // TTS setup — drives voice, translation model, recipients for every generation.
@@ -224,6 +268,29 @@ const PAGE = `<!doctype html>
   .seg-nums { font-size: 13px; margin-top: 5px; }
   .seg-nums .done { color: #16a34a; font-weight: 600; } .seg-nums .notdone { color: #dc2626; font-weight: 600; }
   .seg-pct { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; font-weight: 700; color: #172554; }
+  .extra-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e7e5e4; }
+  .extra-section h3 { font-weight: 400; font-size: 15px; margin-bottom: 8px; }
+  .extra-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .extra-pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #ede9fe; color: #5b21b6; cursor: pointer; }
+  .extra-pill.active { background: #c4b5fd; }
+  .extra-search { width: 100%; padding: 8px 12px; border: 1px solid #d6d3d1; border-radius: 10px; font-size: 13px; margin-top: 6px; }
+  .extra-list { max-height: 200px; overflow-y: auto; margin-top: 6px; border: 1px solid #e7e5e4; border-radius: 10px; }
+  .extra-item { padding: 6px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f5f5f4; display: flex; justify-content: space-between; }
+  .extra-item:hover { background: #fafaf9; }
+  .extra-item.picked { background: #f0fdf4; }
+  .track-status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .track-status.on-track { background: #16a34a; } .track-status.partial { background: #f59e0b; }
+  .track-status.behind { background: #dc2626; } .track-status.upcoming { background: #d6d3d1; }
+  .track-bar { height: 8px; background: #fee2e2; border-radius: 999px; overflow: hidden; width: 80px; display: inline-block; vertical-align: middle; }
+  .track-fill { height: 100%; background: #bbf7d0; border-radius: 999px; }
+  .freq-group { margin-bottom: 20px; }
+  .freq-group h3 { font-weight: 400; font-size: 15px; margin-bottom: 6px; border-bottom: 1px solid #e7e5e4; padding-bottom: 4px; }
+  table.track { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.track th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #78716c; padding: 6px 8px; border-bottom: 1px solid #e7e5e4; }
+  table.track td { padding: 5px 8px; border-bottom: 1px solid #f5f5f4; }
+  .track-summary { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .track-stat { text-align: center; }
+  .track-stat .num { font-size: 28px; font-weight: 600; } .track-stat .lbl { font-size: 11px; color: #78716c; text-transform: uppercase; letter-spacing: .08em; }
 </style></head>
 <body><div class="wrap">
   <div id="login" class="hidden">
@@ -246,6 +313,7 @@ const PAGE = `<!doctype html>
     <div class="row" style="margin-bottom:16px">
       <button class="tab active" id="tab-briefs" onclick="switchTab('briefs')">Briefs</button>
       <button class="tab" id="tab-plan" onclick="switchTab('plan')">Daily Working Plan</button>
+      <button class="tab" id="tab-tracking" onclick="switchTab('tracking')">Tracking</button>
       <button class="tab" id="tab-setup" onclick="switchTab('setup')">TTS Setup</button>
     </div>
 
@@ -272,6 +340,14 @@ const PAGE = `<!doctype html>
         </div>
       </div>
       <div class="card" id="planCard"><div class="sub">Pick a date to see Zahab and Rishabh's working plan for that day.</div></div>
+    </div>
+
+    <div id="view-tracking" class="hidden">
+      <div class="card">
+        <h2>Work Tracking — Frequency Compliance</h2>
+        <div class="sub">Shows whether each task was completed on its assigned days. Tasks done on other days (via "Add Extra Task") count toward compliance.</div>
+        <div id="trackContent" style="margin-top:16px"><div class="sub">Loading…</div></div>
+      </div>
     </div>
 
     <div id="view-setup" class="hidden">
@@ -369,20 +445,23 @@ function esc(s) { return String(s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":
 
 // --- Tabs ---
 function switchTab(name) {
-  for (const t of ["briefs","plan","setup"]) {
+  for (const t of ["briefs","plan","tracking","setup"]) {
     $("view-" + t).classList.toggle("hidden", t !== name);
     $("tab-" + t).classList.toggle("active", t === name);
   }
   if (name === "plan" && !$("planDate").value) { $("planDate").value = new Date().toISOString().slice(0,10); loadPlan(); }
+  if (name === "tracking") loadTracking();
   if (name === "setup") loadSetup();
 }
 
 // --- Daily Working Plan (Zahab client only) ---
 let currentPlan = null;
 let isReadOnly = false;
+let currentExtraDone = new Set();
+let allTasksCache = null;
 function lsKey(date) { return "zahab_progress_" + date; }
-function lsSave(date, doneIds, notDoneIds) {
-  localStorage.setItem(lsKey(date), JSON.stringify({ date, doneIds, notDoneIds, savedAt: new Date().toISOString() }));
+function lsSave(date, doneIds, notDoneIds, extraDone) {
+  localStorage.setItem(lsKey(date), JSON.stringify({ date, doneIds, notDoneIds, extraDone: extraDone || [], savedAt: new Date().toISOString() }));
 }
 function lsLoad(date) {
   try { return JSON.parse(localStorage.getItem(lsKey(date))); } catch { return null; }
@@ -402,6 +481,7 @@ async function loadPlan() {
   const localProg = isReadOnly ? lsLoad(p.date) : null;
   const progSource = localProg || p.progress;
   const doneSet = new Set((progSource?.doneIds || []).map(String));
+  currentExtraDone = new Set((progSource?.extraDone || []).map(String));
   $("planHead").textContent = \`Day \${p.day} of 78 · \${p.weekday} · Week \${p.week} · \${p.tasks.length} tasks · ~\${p.totalMinutes} min\`;
   const bySpace = new Map();
   for (const t of p.tasks) {
@@ -422,6 +502,13 @@ async function loadPlan() {
     <div style="overflow-x:auto"><table class="plan">
       <tr><th>Space</th><th>Object</th><th>Work</th><th>Phase</th><th>Frequency</th><th>Time</th><th>Done</th></tr>\${rows}</table></div>
     <div id="segCharts" class="seg-charts"></div>
+    <div class="extra-section">
+      <h3>Extra Tasks Done Today (not assigned for this day)</h3>
+      <div class="sub">Tick tasks from other days that were completed today — they count toward tracking compliance.</div>
+      <input class="extra-search" id="extraSearch" placeholder="Search by space, object, or work…" oninput="filterExtraTasks()">
+      <div id="extraList" class="extra-list hidden"></div>
+      <div id="extraPicked" class="extra-pills"></div>
+    </div>
     <div class="plan-actions">
       <span id="planCounts"></span>
       <button onclick="savePlanProgress()">Save Progress</button>
@@ -429,6 +516,7 @@ async function loadPlan() {
       <span id="planStatus" class="sub"></span>
     </div>\`;
   updatePlanCounts();
+  loadExtraTasks().then(() => renderExtraPicked());
 }
 function tickChanged(cb) {
   const row = document.getElementById("row-" + cb.dataset.taskId);
@@ -465,27 +553,29 @@ function renderSegCharts() {
   const el = $("segCharts");
   if (el) el.innerHTML = bar("Routine (daily – every 6 days)", r) + bar("Deep Clean (every 12+ days)", d);
 }
-async function savePlanProgress() {
-  if (!currentPlan) return;
+function gatherProgress() {
   const all = document.querySelectorAll(".tick-cb");
   const doneIds = [], notDoneIds = [];
   all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
+  return { doneIds, notDoneIds, extraDone: [...currentExtraDone] };
+}
+async function savePlanProgress() {
+  if (!currentPlan) return;
+  const { doneIds, notDoneIds, extraDone } = gatherProgress();
   $("planStatus").textContent = "Saving…";
   if (isReadOnly) {
-    lsSave(currentPlan.date, doneIds, notDoneIds);
-    $("planStatus").textContent = \`Saved locally — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+    lsSave(currentPlan.date, doneIds, notDoneIds, extraDone);
+    $("planStatus").textContent = \`Saved locally — \${doneIds.length} done, \${notDoneIds.length} not done\${extraDone.length ? ", " + extraDone.length + " extra" : ""}.\`;
   } else {
-    const r = await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
-    $("planStatus").textContent = r.error ? r.error : \`Saved — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+    const r = await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds, extraDone }) });
+    $("planStatus").textContent = r.error ? r.error : \`Saved — \${doneIds.length} done, \${notDoneIds.length} not done\${extraDone.length ? ", " + extraDone.length + " extra" : ""}.\`;
   }
 }
 async function sharePlanReport() {
   if (!currentPlan) return;
-  const all = document.querySelectorAll(".tick-cb");
-  const doneIds = [], notDoneIds = [];
-  all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
+  const { doneIds, notDoneIds, extraDone } = gatherProgress();
   $("planStatus").textContent = "Saving & sending report…";
-  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
+  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds, extraDone }) });
   if (r.error) { $("planStatus").textContent = r.error; return; }
   currentPlan.progress = { doneIds, notDoneIds };
   $("planStatus").textContent =
@@ -520,6 +610,109 @@ async function saveSetup() {
     localSendTime: $("setTime").value,
   })});
   $("setStatus").textContent = r.error ? r.error : "Saved — next generation uses this setup. Push to GitHub to apply it to the nightly cloud run too.";
+}
+
+// --- Extra-task picker ---
+async function loadExtraTasks() {
+  if (!allTasksCache) allTasksCache = await api("/api/plan/all-tasks");
+}
+function renderExtraPicked() {
+  const el = $("extraPicked");
+  if (!el) return;
+  if (!currentExtraDone.size) { el.innerHTML = '<span class="sub">No extra tasks added.</span>'; return; }
+  el.innerHTML = [...currentExtraDone].map(id => {
+    const t = allTasksCache?.find(x => x.id === id);
+    const label = t ? \`\${t.spaceName} — \${t.object}: \${t.work}\` : id;
+    return \`<span class="extra-pill active" onclick="removeExtra('\${id}')">\${esc(label)} ✕</span>\`;
+  }).join("");
+}
+function removeExtra(id) { currentExtraDone.delete(id); renderExtraPicked(); }
+async function filterExtraTasks() {
+  await loadExtraTasks();
+  const q = ($("extraSearch")?.value || "").toLowerCase().trim();
+  const el = $("extraList");
+  if (!q || q.length < 2) { el.classList.add("hidden"); return; }
+  const assignedIds = new Set((currentPlan?.tasks || []).map(t => t.id));
+  const matches = allTasksCache.filter(t => !assignedIds.has(t.id) && !currentExtraDone.has(t.id) &&
+    (t.spaceName + " " + t.object + " " + t.work).toLowerCase().includes(q)).slice(0, 15);
+  if (!matches.length) { el.innerHTML = '<div class="extra-item">No matching tasks.</div>'; el.classList.remove("hidden"); return; }
+  el.innerHTML = matches.map(t =>
+    \`<div class="extra-item" onclick="pickExtra('\${t.id}')"><span>\${esc(t.spaceName)} — \${esc(t.object)}: \${esc(t.work)}</span><span class="sub">Every \${t.freq}d · \${t.timeMinutes}m</span></div>\`
+  ).join("");
+  el.classList.remove("hidden");
+}
+function pickExtra(id) {
+  currentExtraDone.add(id);
+  $("extraSearch").value = "";
+  $("extraList").classList.add("hidden");
+  renderExtraPicked();
+}
+
+// --- Tracking page ---
+async function loadTracking() {
+  $("trackContent").innerHTML = '<div class="sub">Loading tracking data…</div>';
+  const data = await api("/api/tracking");
+  if (data.error) { $("trackContent").innerHTML = '<div class="err">' + esc(data.error) + '</div>'; return; }
+  const tasks = data.tasks.filter(t => t.scheduled > 0);
+  const onTrack = tasks.filter(t => t.status === "on-track").length;
+  const partial = tasks.filter(t => t.status === "partial").length;
+  const behind = tasks.filter(t => t.status === "behind").length;
+  const totalSched = tasks.reduce((s, t) => s + t.scheduled, 0);
+  const totalDone = tasks.reduce((s, t) => s + t.doneCount, 0);
+  const overallPct = totalSched ? Math.round(totalDone / totalSched * 100) : 0;
+
+  const routineTasks = tasks.filter(t => t.freq <= 6);
+  const deepTasks = tasks.filter(t => t.freq > 6);
+  const rSched = routineTasks.reduce((s, t) => s + t.scheduled, 0);
+  const rDone = routineTasks.reduce((s, t) => s + t.doneCount, 0);
+  const dSched = deepTasks.reduce((s, t) => s + t.scheduled, 0);
+  const dDone = deepTasks.reduce((s, t) => s + t.doneCount, 0);
+  const rPct = rSched ? Math.round(rDone / rSched * 100) : 0;
+  const dPct = dSched ? Math.round(dDone / dSched * 100) : 0;
+
+  function segBar(label, done, sched, pct) {
+    return \`<div class="seg-chart"><div class="seg-label">\${label}</div>
+      <div class="seg-bar-bg"><div class="seg-bar-fill \${pct===100?'full':''}" style="width:\${pct}%"></div><span class="seg-pct">\${pct}%</span></div>
+      <div class="seg-nums"><span class="done">✓ \${done}</span> / \${sched} instances done</div></div>\`;
+  }
+
+  const freqGroups = new Map();
+  for (const t of tasks) {
+    const key = t.freq <= 6 ? "Routine (daily – every 6 days)" : "Deep Clean (every " + t.freq + " days)";
+    if (!freqGroups.has(key)) freqGroups.set(key, []);
+    freqGroups.get(key).push(t);
+  }
+
+  let groupsHtml = "";
+  for (const [label, grp] of freqGroups) {
+    const rows = grp.map(t => {
+      const pct = t.compliance ?? 0;
+      return \`<tr>
+        <td><span class="track-status \${t.status}"></span>\${esc(t.spaceName)}</td>
+        <td>\${esc(t.object)}</td><td>\${esc(t.work)}</td>
+        <td>Every \${t.freq}d</td>
+        <td>\${t.doneCount}/\${t.scheduled}</td>
+        <td><div class="track-bar"><div class="track-fill" style="width:\${pct}%"></div></div> \${pct}%</td>
+        <td>\${t.lastDone || "—"}</td></tr>\`;
+    }).join("");
+    groupsHtml += \`<div class="freq-group"><h3>\${label} (\${grp.length} tasks)</h3>
+      <div style="overflow-x:auto"><table class="track">
+        <tr><th>Space</th><th>Object</th><th>Work</th><th>Freq</th><th>Done</th><th>Compliance</th><th>Last Done</th></tr>
+        \${rows}</table></div></div>\`;
+  }
+
+  $("trackContent").innerHTML = \`
+    <div class="track-summary">
+      <div class="track-stat"><div class="num" style="color:#172554">\${overallPct}%</div><div class="lbl">Overall</div></div>
+      <div class="track-stat"><div class="num" style="color:#16a34a">\${onTrack}</div><div class="lbl">On Track</div></div>
+      <div class="track-stat"><div class="num" style="color:#f59e0b">\${partial}</div><div class="lbl">Partial</div></div>
+      <div class="track-stat"><div class="num" style="color:#dc2626">\${behind}</div><div class="lbl">Behind</div></div>
+    </div>
+    <div class="seg-charts" style="margin-bottom:20px">
+      \${segBar("Routine (≤ 6 day cycle)", rDone, rSched, rPct)}
+      \${segBar("Deep Clean (> 6 day cycle)", dDone, dSched, dPct)}
+    </div>
+    \${groupsHtml}\`;
 }
 
 api("/api/me").then(m => { isReadOnly = !!m.readOnly; if (m.readOnly) $("genCard").classList.add("hidden"); show(m.signedIn ? "app" : "login"); if (m.signedIn) refresh(); });

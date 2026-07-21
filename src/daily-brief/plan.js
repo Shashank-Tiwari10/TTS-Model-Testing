@@ -56,6 +56,38 @@ function buildIdMap() {
   return idMap;
 }
 
+export function dateForDay(dayNum) {
+  const plan = loadPlan();
+  const anchor = new Date(plan.quarterAnchor + "T00:00:00Z");
+  const weeks = Math.floor((dayNum - 1) / 6);
+  const rem = (dayNum - 1) % 6;
+  const calDays = weeks * 7 + rem;
+  const d = new Date(anchor.getTime() + calDays * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+export function allTasksWithIds() {
+  const plan = loadPlan();
+  const ids = buildIdMap();
+  return plan.tasks.map((t, i) => ({ id: ids.get(i), idx: i, ...t }));
+}
+
+export function taskSchedule() {
+  const plan = loadPlan();
+  const ids = buildIdMap();
+  const result = new Map();
+  plan.dayTasks.forEach((indices, dayIdx) => {
+    const dayNum = dayIdx + 1;
+    const isoDate = dateForDay(dayNum);
+    indices.forEach(i => {
+      const id = ids.get(i);
+      if (!result.has(id)) result.set(id, []);
+      result.get(id).push({ day: dayNum, date: isoDate });
+    });
+  });
+  return result;
+}
+
 export function scheduleForDate(isoDate) {
   const plan = loadPlan();
   const ids = buildIdMap();
