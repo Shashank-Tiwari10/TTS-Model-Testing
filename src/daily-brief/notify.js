@@ -102,19 +102,23 @@ export async function sendWorkReport({ date, weekday, day, week, clientName, don
   const toAll = allEmails();
   const transporter = makeTransporter();
   if (!transporter) return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
-  const doneRows = done.map(t => `<tr style="background:#f0fdf4"><td style="padding:6px 10px">${escapeHtml(t.spaceName)}</td><td style="padding:6px 10px">${escapeHtml(t.object)}</td><td style="padding:6px 10px">${escapeHtml(t.work)}</td><td style="padding:6px 10px">${t.timeMinutes} min</td><td style="padding:6px 10px;color:#16a34a">✓ Done</td></tr>`).join("");
-  const notDoneRows = notDone.map(t => `<tr style="background:#fef2f2"><td style="padding:6px 10px">${escapeHtml(t.spaceName)}</td><td style="padding:6px 10px">${escapeHtml(t.object)}</td><td style="padding:6px 10px">${escapeHtml(t.work)}</td><td style="padding:6px 10px">${t.timeMinutes} min</td><td style="padding:6px 10px;color:#dc2626">✗ Not Done</td></tr>`).join("");
-  const subject = `Zahab House — Work Report · ${weekday}, ${date} (Day ${day})`;
+  const thStyle = 'text-align:left;padding:8px 10px';
+  const tdStyle = 'padding:6px 10px';
+  const doneRows = done.map(t => `<tr style="background:#f0fdf4"><td style="${tdStyle}">${escapeHtml(t.id || "")}</td><td style="${tdStyle}">${escapeHtml(t.spaceName)}</td><td style="${tdStyle}">${escapeHtml(t.object)}</td><td style="${tdStyle}">${escapeHtml(t.work)}</td><td style="${tdStyle}">${t.timeMinutes} min</td><td style="${tdStyle};color:#16a34a">✓ Done</td></tr>`).join("");
+  const notDoneRows = notDone.map(t => `<tr style="background:#fef2f2"><td style="${tdStyle}">${escapeHtml(t.id || "")}</td><td style="${tdStyle}">${escapeHtml(t.spaceName)}</td><td style="${tdStyle}">${escapeHtml(t.object)}</td><td style="${tdStyle}">${escapeHtml(t.work)}</td><td style="${tdStyle}">${t.timeMinutes} min</td><td style="${tdStyle};color:#dc2626">✗ Not Done</td></tr>`).join("");
+  const pct = (done.length + notDone.length) ? Math.round(done.length / (done.length + notDone.length) * 100) : 0;
+  const subject = `Zahab House — Work Report · ${weekday}, ${date} (Day ${day}) · ${pct}% Done`;
   const html = `
     <div style="font-family:Georgia,serif;max-width:700px;margin:auto;color:#172554">
-      <h2 style="font-weight:400">${escapeHtml(clientName)} House · Daily Work Report</h2>
-      <p style="color:#78716c">${weekday}, ${date} · Day ${day} of 78 · Week ${week} · ~${totalMinutes} min total</p>
-      <p><span style="background:#dcfce7;color:#14532d;padding:3px 10px;border-radius:999px;font-size:13px">${done.length} Done</span>
-         <span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:999px;font-size:13px;margin-left:6px">${notDone.length} Not Done</span></p>
-      ${done.length ? `<h3 style="border-bottom:1px solid #e7e5e4;padding-bottom:4px;margin-top:20px">✓ Work Done (${done.length})</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f5f5f4"><th style="text-align:left;padding:8px 10px">Space</th><th style="text-align:left;padding:8px 10px">Object</th><th style="text-align:left;padding:8px 10px">Work</th><th style="text-align:left;padding:8px 10px">Time</th><th style="text-align:left;padding:8px 10px">Status</th></tr>${doneRows}</table>` : ""}
-      ${notDone.length ? `<h3 style="border-bottom:1px solid #e7e5e4;padding-bottom:4px;margin-top:20px">✗ Work Not Done (${notDone.length})</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f5f5f4"><th style="text-align:left;padding:8px 10px">Space</th><th style="text-align:left;padding:8px 10px">Object</th><th style="text-align:left;padding:8px 10px">Work</th><th style="text-align:left;padding:8px 10px">Time</th><th style="text-align:left;padding:8px 10px">Status</th></tr>${notDoneRows}</table>` : ""}
+      <h1 style="font-weight:400;font-size:24px;margin-bottom:4px">${escapeHtml(clientName)} House · Daily Work Report</h1>
+      <h2 style="font-weight:600;font-size:20px;color:#172554;margin-bottom:8px">${weekday}, ${date}</h2>
+      <p style="color:#78716c;margin-bottom:12px">Day ${day} of 78 · Week ${week} · ~${totalMinutes} min total · Report generated ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
+      <p><span style="background:#dcfce7;color:#14532d;padding:5px 14px;border-radius:999px;font-size:14px;font-weight:600">${done.length} Done (${pct}%)</span>
+         <span style="background:#fee2e2;color:#991b1b;padding:5px 14px;border-radius:999px;font-size:14px;font-weight:600;margin-left:8px">${notDone.length} Not Done</span></p>
+      ${done.length ? `<h3 style="border-bottom:1px solid #e7e5e4;padding-bottom:4px;margin-top:24px">✓ Work Done (${done.length})</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f5f5f4"><th style="${thStyle}">ID</th><th style="${thStyle}">Space</th><th style="${thStyle}">Object</th><th style="${thStyle}">Work</th><th style="${thStyle}">Time</th><th style="${thStyle}">Status</th></tr>${doneRows}</table>` : ""}
+      ${notDone.length ? `<h3 style="border-bottom:1px solid #e7e5e4;padding-bottom:4px;margin-top:24px">✗ Work Not Done (${notDone.length})</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f5f5f4"><th style="${thStyle}">ID</th><th style="${thStyle}">Space</th><th style="${thStyle}">Object</th><th style="${thStyle}">Work</th><th style="${thStyle}">Time</th><th style="${thStyle}">Status</th></tr>${notDoneRows}</table>` : ""}
     </div>`;
   try {
     const info = await transporter.sendMail({
@@ -132,9 +136,10 @@ export async function sendWorkReport({ date, weekday, day, week, clientName, don
 export async function sendWorkReportWhatsApp({ date, weekday, day, clientName, done, notDone }) {
   const recipients = allRecipients();
   if (!recipients.length) return { ok: false, skipped: true, detail: "No phone+apikey pairs configured — register with CallMeBot first" };
+  const waPct = (done.length + notDone.length) ? Math.round(done.length / (done.length + notDone.length) * 100) : 0;
   const doneList = done.length ? done.map(t => `  ✓ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
   const notDoneList = notDone.length ? notDone.map(t => `  ✗ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
-  const body = `*${clientName} House — Work Report*\n${weekday}, ${date} · Day ${day}\n\n*Done (${done.length}):*\n${doneList}\n\n*Not Done (${notDone.length}):*\n${notDoneList}`;
+  const body = `*${clientName} House — Work Report*\n*${weekday}, ${date}* · Day ${day} · ${waPct}% Done\n\n*Done (${done.length}):*\n${doneList}\n\n*Not Done (${notDone.length}):*\n${notDoneList}`;
   const results = await Promise.all(recipients.map(r => sendWhatsAppTo(r.phone, r.apiKey, body)));
   const detail = recipients.map((r, i) => `${r.phone}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
   return { ok: results.some(r => r.ok), detail };
