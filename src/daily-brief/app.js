@@ -103,17 +103,21 @@ export function createApp() {
     res.json({ ok: true, progress: saveProgress(date, doneIds, notDoneIds) });
   });
 
-  // Share work report via email + WhatsApp.
+  // Share work report via email + WhatsApp. Accepts doneIds/notDoneIds inline to avoid race conditions.
   app.post("/api/plan/share", requireAuth, async (req, res) => {
-    const { date } = req.body || {};
+    const { date, doneIds, notDoneIds } = req.body || {};
     if (!date) return res.status(400).json({ error: "date is required" });
+    if (Array.isArray(doneIds) && Array.isArray(notDoneIds) && !READ_ONLY) {
+      saveProgress(date, doneIds, notDoneIds);
+    }
     const prog = loadProgress(date);
-    if (!prog) return res.status(400).json({ error: "No saved progress for this date. Save progress first." });
     const sched = scheduleForDate(date);
     if (sched.off) return res.status(400).json({ error: sched.reason });
     const taskMap = new Map(sched.tasks.map(t => [t.id, t]));
-    const done = (prog.doneIds || []).map(id => taskMap.get(id)).filter(Boolean);
-    const notDone = (prog.notDoneIds || []).map(id => taskMap.get(id)).filter(Boolean);
+    const useDoneIds = prog?.doneIds || doneIds || [];
+    const useNotDoneIds = prog?.notDoneIds || notDoneIds || [];
+    const done = useDoneIds.map(id => taskMap.get(id)).filter(Boolean);
+    const notDone = useNotDoneIds.map(id => taskMap.get(id)).filter(Boolean);
     const report = { date, weekday: sched.weekday, day: sched.day, week: sched.week, clientName: sched.clientName, done, notDone, totalMinutes: sched.totalMinutes };
     const email = await sendWorkReport(report);
     const whatsapp = await sendWorkReportWhatsApp(report);
@@ -427,19 +431,12 @@ async function savePlanProgress() {
 async function sharePlanReport() {
   if (!currentPlan) return;
   const all = document.querySelectorAll(".tick-cb");
-  const hasUnsaved = !currentPlan.progress || [...all].some(cb => {
-    const wasDone = (currentPlan.progress?.doneIds || []).includes(cb.dataset.taskId);
-    return cb.checked !== wasDone;
-  });
-  if (hasUnsaved) {
-    $("planStatus").textContent = "Saving progress first…";
-    const doneIds = [], notDoneIds = [];
-    all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
-    await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
-  }
-  $("planStatus").textContent = "Sending report…";
-  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date }) });
+  const doneIds = [], notDoneIds = [];
+  all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
+  $("planStatus").textContent = "Saving & sending report…";
+  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
   if (r.error) { $("planStatus").textContent = r.error; return; }
+  currentPlan.progress = { doneIds, notDoneIds };
   $("planStatus").textContent =
     "Email: " + (r.email.ok ? "sent ✓" : r.email.skipped ? "skipped" : "failed — " + r.email.detail) +
     " · WhatsApp: " + (r.whatsapp.ok ? "sent ✓" : r.whatsapp.skipped ? "skipped" : "failed — " + r.whatsapp.detail);
