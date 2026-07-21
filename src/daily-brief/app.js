@@ -291,6 +291,23 @@ const PAGE = `<!doctype html>
   .track-summary { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
   .track-stat { text-align: center; }
   .track-stat .num { font-size: 28px; font-weight: 600; } .track-stat .lbl { font-size: 11px; color: #78716c; text-transform: uppercase; letter-spacing: .08em; }
+  .ov-date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .ov-space { margin-bottom: 16px; }
+  .ov-space-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #172554; }
+  .ov-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+  .ov-tile { width: 38px; height: 38px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; cursor: default; position: relative; transition: transform .15s; }
+  .ov-tile:hover { transform: scale(1.25); z-index: 2; }
+  .ov-tile.done { background: #dcfce7; color: #16a34a; }
+  .ov-tile.missed { background: #fee2e2; color: #dc2626; }
+  .ov-tile.extra { background: #ede9fe; color: #7c3aed; }
+  .ov-tile.none { background: #f5f5f4; color: #a8a29e; }
+  .ov-tip { display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); background: #172554; color: #fef3c7; font-size: 10px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; z-index: 10; pointer-events: none; }
+  .ov-tile:hover .ov-tip { display: block; }
+  .ov-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; }
+  .ov-legend span { display: flex; align-items: center; gap: 4px; }
+  .ov-dot { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+  .ov-summary { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 14px; }
+  .ov-summary .num { font-size: 32px; font-weight: 600; } .ov-summary .lbl { font-size: 11px; color: #78716c; text-transform: uppercase; }
 </style></head>
 <body><div class="wrap">
   <div id="login" class="hidden">
@@ -313,6 +330,7 @@ const PAGE = `<!doctype html>
     <div class="row" style="margin-bottom:16px">
       <button class="tab active" id="tab-briefs" onclick="switchTab('briefs')">Briefs</button>
       <button class="tab" id="tab-plan" onclick="switchTab('plan')">Daily Working Plan</button>
+      <button class="tab" id="tab-overview" onclick="switchTab('overview')">Overview</button>
       <button class="tab" id="tab-tracking" onclick="switchTab('tracking')">Tracking</button>
       <button class="tab" id="tab-setup" onclick="switchTab('setup')">TTS Setup</button>
     </div>
@@ -340,6 +358,20 @@ const PAGE = `<!doctype html>
         </div>
       </div>
       <div class="card" id="planCard"><div class="sub">Pick a date to see Zahab and Rishabh's working plan for that day.</div></div>
+    </div>
+
+    <div id="view-overview" class="hidden">
+      <div class="card">
+        <h2>Overview — Daily Work at a Glance</h2>
+        <div class="sub">Each tile is one task. Hover for details.</div>
+        <div class="ov-date-row" style="margin-top:14px">
+          <label style="margin-top:0">Date</label>
+          <input id="ovDate" type="date" style="width:auto;margin-top:0">
+          <button class="ghost" style="margin-top:0" onclick="loadOverview()">Show</button>
+          <span id="ovHead" class="sub"></span>
+        </div>
+        <div id="ovContent"><div class="sub">Pick a date to see the overview.</div></div>
+      </div>
     </div>
 
     <div id="view-tracking" class="hidden">
@@ -445,11 +477,12 @@ function esc(s) { return String(s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":
 
 // --- Tabs ---
 function switchTab(name) {
-  for (const t of ["briefs","plan","tracking","setup"]) {
+  for (const t of ["briefs","plan","overview","tracking","setup"]) {
     $("view-" + t).classList.toggle("hidden", t !== name);
     $("tab-" + t).classList.toggle("active", t === name);
   }
   if (name === "plan" && !$("planDate").value) { $("planDate").value = new Date().toISOString().slice(0,10); loadPlan(); }
+  if (name === "overview" && !$("ovDate").value) { $("ovDate").value = new Date().toISOString().slice(0,10); loadOverview(); }
   if (name === "tracking") loadTracking();
   if (name === "setup") loadSetup();
 }
@@ -646,6 +679,67 @@ function pickExtra(id) {
   $("extraSearch").value = "";
   $("extraList").classList.add("hidden");
   renderExtraPicked();
+}
+
+// --- Overview page ---
+async function loadOverview() {
+  const d = $("ovDate").value;
+  if (!d) return;
+  $("ovHead").textContent = "Loading…";
+  const p = await api("/api/plan?date=" + d);
+  if (p.off) {
+    $("ovHead").textContent = "";
+    $("ovContent").innerHTML = '<div class="sub">' + esc(p.reason) + '</div>';
+    return;
+  }
+  const localProg = isReadOnly ? lsLoad(p.date) : null;
+  const progSource = localProg || p.progress;
+  const doneSet = new Set((progSource?.doneIds || []).map(String));
+  const extraSet = new Set((progSource?.extraDone || []).map(String));
+
+  const bySpace = new Map();
+  for (const t of p.tasks) {
+    if (!bySpace.has(t.spaceName)) bySpace.set(t.spaceName, []);
+    bySpace.get(t.spaceName).push(t);
+  }
+
+  const totalDone = p.tasks.filter(t => doneSet.has(String(t.id))).length;
+  const totalMissed = p.tasks.length - totalDone;
+  const pct = p.tasks.length ? Math.round(totalDone / p.tasks.length * 100) : 0;
+
+  const routineTasks = p.tasks.filter(t => t.freq <= 6);
+  const deepTasks = p.tasks.filter(t => t.freq > 6);
+  const rDone = routineTasks.filter(t => doneSet.has(String(t.id))).length;
+  const dDone = deepTasks.filter(t => doneSet.has(String(t.id))).length;
+
+  $("ovHead").textContent = \`Day \${p.day} of 78 · \${p.weekday} · \${p.tasks.length} tasks · \${pct}% done\`;
+
+  let spacesHtml = "";
+  for (const [space, tasks] of bySpace) {
+    const tiles = tasks.map(t => {
+      const isDone = doneSet.has(String(t.id));
+      const isExtra = extraSet.has(String(t.id));
+      const cls = isDone ? "done" : isExtra ? "extra" : "missed";
+      const icon = isDone ? "✓" : isExtra ? "+" : "✗";
+      return \`<div class="ov-tile \${cls}"><span class="ov-tip">\${esc(t.object)}: \${esc(t.work)} (\${t.freq === 1 ? "daily" : t.freq + "d"})</span>\${icon}</div>\`;
+    }).join("");
+    spacesHtml += \`<div class="ov-space"><div class="ov-space-label">\${esc(space)}</div><div class="ov-grid">\${tiles}</div></div>\`;
+  }
+
+  $("ovContent").innerHTML = \`
+    <div class="ov-summary">
+      <div><div class="num" style="color:#172554">\${pct}%</div><div class="lbl">Complete</div></div>
+      <div><div class="num" style="color:#16a34a">\${totalDone}</div><div class="lbl">Done</div></div>
+      <div><div class="num" style="color:#dc2626">\${totalMissed}</div><div class="lbl">Missed</div></div>
+      <div><div class="num" style="color:#16a34a">\${rDone}<span style="font-size:14px;color:#78716c">/\${routineTasks.length}</span></div><div class="lbl">Routine</div></div>
+      <div><div class="num" style="color:#16a34a">\${dDone}<span style="font-size:14px;color:#78716c">/\${deepTasks.length}</span></div><div class="lbl">Deep Clean</div></div>
+    </div>
+    <div class="ov-legend">
+      <span><span class="ov-dot" style="background:#dcfce7"></span> Done</span>
+      <span><span class="ov-dot" style="background:#fee2e2"></span> Missed</span>
+      <span><span class="ov-dot" style="background:#ede9fe"></span> Extra (off-schedule)</span>
+    </div>
+    \${spacesHtml}\`;
 }
 
 // --- Tracking page ---
