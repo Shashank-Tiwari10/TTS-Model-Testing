@@ -13,5 +13,19 @@
   "translateModel": "gpt-5.6-terra",
   "audioBytes": 1216224,
   "generatedAt": "2026-07-20T22:23:46.544Z",
-  "sent": null
+  "sent": {
+    "email": {
+      "ok": true,
+      "detail": "sent to mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com (<02de5586-cc4f-9ef6-2e84-4165e25f1377@gmail.com>)",
+      "at": "2026-07-21T16:00:06.195Z",
+      "to": "mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com"
+    },
+    "whatsapp": {
+      "ok": false,
+      "skipped": true,
+      "detail": "No phone+apikey pairs configured — register with CallMeBot first",
+      "at": "2026-07-21T16:00:06.195Z",
+      "to": ""
+    }
+  }
 }
