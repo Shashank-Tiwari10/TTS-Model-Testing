@@ -25,6 +25,8 @@ function defaults() {
     toPhone: process.env.BRIEF_TO_PHONE || "+919569598949",
     toEmail2: process.env.BRIEF_TO_EMAIL2 || "gajrajbudhprakash@gmail.com",
     toPhone2: process.env.BRIEF_TO_PHONE2 || "+916375320221",
+    waApiKey: process.env.BRIEF_WA_APIKEY || "",
+    waApiKey2: process.env.BRIEF_WA_APIKEY2 || "",
     localSendTime: process.env.BRIEF_SEND_TIME || "06:30",
   };
 }
@@ -38,7 +40,7 @@ export function getSettings() {
 }
 
 export function saveSettings(patch) {
-  const allowed = ["voice", "translateModel", "toEmail", "toPhone", "toEmail2", "toPhone2", "localSendTime"];
+  const allowed = ["voice", "translateModel", "toEmail", "toPhone", "waApiKey", "toEmail2", "toPhone2", "waApiKey2", "localSendTime"];
   const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k, v]) => allowed.includes(k) && typeof v === "string" && v.trim()));
   const next = { ...getSettings(), ...clean };
   writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 2));

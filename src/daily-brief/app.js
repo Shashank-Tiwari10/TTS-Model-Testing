@@ -272,11 +272,13 @@ const PAGE = `<!doctype html>
         <label>Azure Voice (voice note)</label><select id="setVoice"></select>
         <label>OpenAI Translation Model</label><select id="setModel"></select>
         <h2 style="margin-top:20px">Recipients</h2>
-        <div class="sub">Briefs and work reports are sent to all recipients below.</div>
+        <div class="sub">Briefs and work reports are sent to all recipients below. WhatsApp uses CallMeBot — each recipient must register once: add +34 644 37 67 94 to contacts, send "I allow callmebot to send me messages", then paste the API key here.</div>
         <label>Recipient 1 — Email</label><input id="setEmail" type="email">
         <label>Recipient 1 — WhatsApp Number</label><input id="setPhone" type="text">
+        <label>Recipient 1 — CallMeBot API Key</label><input id="setWaKey" type="text" placeholder="Get from CallMeBot after registration">
         <label>Recipient 2 — Email</label><input id="setEmail2" type="email">
         <label>Recipient 2 — WhatsApp Number</label><input id="setPhone2" type="text">
+        <label>Recipient 2 — CallMeBot API Key</label><input id="setWaKey2" type="text" placeholder="Get from CallMeBot after registration">
         <label>Local Auto-Send Time (IST, Mon–Sat — only when the local server runs with BRIEF_AUTO_SEND=true; the cloud run is fixed at 20:00 IST in the GitHub workflow)</label><input id="setTime" type="text" placeholder="06:30">
         <div class="row"><button id="setSave" onclick="saveSetup()">Save Setup</button><span id="setStatus" class="sub"></span></div>
       </div>
@@ -449,21 +451,23 @@ async function loadSetup() {
   $("setModel").innerHTML = r.models.map(m => \`<option value="\${m}" \${m === r.settings.translateModel ? "selected" : ""}>\${m}</option>\`).join("");
   $("setEmail").value = r.settings.toEmail;
   $("setPhone").value = r.settings.toPhone;
+  $("setWaKey").value = r.settings.waApiKey || "";
   $("setEmail2").value = r.settings.toEmail2 || "";
   $("setPhone2").value = r.settings.toPhone2 || "";
+  $("setWaKey2").value = r.settings.waApiKey2 || "";
   $("setTime").value = r.settings.localSendTime;
   if (r.readOnly) {
     $("setSave").classList.add("hidden");
     $("setStatus").textContent = "View-only online — change setup from the local console (or edit settings.json) and push; the nightly run and this site follow it.";
-    for (const id of ["setVoice","setModel","setEmail","setPhone","setEmail2","setPhone2","setTime"]) $(id).disabled = true;
+    for (const id of ["setVoice","setModel","setEmail","setPhone","setWaKey","setEmail2","setPhone2","setWaKey2","setTime"]) $(id).disabled = true;
   }
 }
 async function saveSetup() {
   $("setStatus").textContent = "Saving…";
   const r = await api("/api/settings", { method: "POST", body: JSON.stringify({
     voice: $("setVoice").value, translateModel: $("setModel").value,
-    toEmail: $("setEmail").value, toPhone: $("setPhone").value,
-    toEmail2: $("setEmail2").value, toPhone2: $("setPhone2").value,
+    toEmail: $("setEmail").value, toPhone: $("setPhone").value, waApiKey: $("setWaKey").value,
+    toEmail2: $("setEmail2").value, toPhone2: $("setPhone2").value, waApiKey2: $("setWaKey2").value,
     localSendTime: $("setTime").value,
   })});
   $("setStatus").textContent = r.error ? r.error : "Saved — next generation uses this setup. Push to GitHub to apply it to the nightly cloud run too.";

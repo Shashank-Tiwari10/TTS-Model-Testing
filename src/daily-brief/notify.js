@@ -1,8 +1,8 @@
 // Delivery for the daily Zahab brief:
 //  - Email (nodemailer / SMTP): Hindi + English text with the Swara voice note attached.
-//  - WhatsApp (optional, Twilio REST via axios): text only — Twilio needs a public media
-//    URL for audio, so the voice note travels by email; WhatsApp carries the text brief.
-// Both read credentials from .env; missing credentials skip that channel gracefully.
+//  - WhatsApp (CallMeBot free API): text only — each recipient registers once by messaging
+//    +34 644 37 67 94 "I allow callmebot to send me messages" to get their API key.
+// Both read credentials from .env / settings.json; missing credentials skip gracefully.
 import nodemailer from "nodemailer";
 import axios from "axios";
 import { markSent } from "./generate.js";
@@ -12,9 +12,12 @@ function allEmails() {
   const s = getSettings();
   return [s.toEmail, s.toEmail2].filter(Boolean).join(", ");
 }
-function allPhones() {
+function allRecipients() {
   const s = getSettings();
-  return [s.toPhone, s.toPhone2].filter(Boolean);
+  return [
+    { phone: s.toPhone, apiKey: s.waApiKey },
+    { phone: s.toPhone2, apiKey: s.waApiKey2 },
+  ].filter(r => r.phone && r.apiKey);
 }
 function makeTransporter() {
   const { SMTP_USER, SMTP_PASS } = process.env;
@@ -26,24 +29,19 @@ function makeTransporter() {
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
 }
-async function sendWhatsAppTo(phone, body) {
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM } = process.env;
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
-    return { ok: false, skipped: true, detail: "Twilio credentials not set in .env — WhatsApp skipped" };
+async function sendWhatsAppTo(phone, apiKey, body) {
+  if (!phone || !apiKey) {
+    return { ok: false, skipped: true, detail: `No CallMeBot API key for ${phone || "unknown"} — register by messaging +34 644 37 67 94` };
   }
   try {
-    const resp = await axios.post(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      new URLSearchParams({
-        From: `whatsapp:${TWILIO_WHATSAPP_FROM}`,
-        To: `whatsapp:${phone}`,
-        Body: body.slice(0, 1500),
-      }),
-      { auth: { username: TWILIO_ACCOUNT_SID, password: TWILIO_AUTH_TOKEN } }
-    );
-    return { ok: true, detail: `sent to ${phone} (${resp.data.sid})` };
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(body.slice(0, 1500))}&apikey=${encodeURIComponent(apiKey)}`;
+    const resp = await axios.get(url, { timeout: 15000 });
+    if (resp.status === 200) {
+      return { ok: true, detail: `sent to ${phone} via CallMeBot` };
+    }
+    return { ok: false, detail: `CallMeBot returned ${resp.status}` };
   } catch (err) {
-    return { ok: false, detail: err.response?.data?.message || err.message };
+    return { ok: false, detail: err.response?.data || err.message };
   }
 }
 
@@ -78,24 +76,24 @@ export async function sendEmail(brief) {
 }
 
 export async function sendWhatsApp(brief) {
-  const phones = allPhones();
-  if (!phones.length) return { ok: false, skipped: true, detail: "No phone numbers configured" };
+  const recipients = allRecipients();
+  if (!recipients.length) return { ok: false, skipped: true, detail: "No phone+apikey pairs configured — register with CallMeBot first" };
   const body =
     `*${brief.clientName} House — Cleaning Brief*\n${brief.weekday}, ${brief.date} · Day ${brief.day} · ${brief.totalTasks} tasks\n\n` +
     `${brief.hindiRoman}\n\n— Voice note & English translation sent by email.`;
-  const results = await Promise.all(phones.map(p => sendWhatsAppTo(p, body)));
-  const detail = phones.map((p, i) => `${p}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
+  const results = await Promise.all(recipients.map(r => sendWhatsAppTo(r.phone, r.apiKey, body)));
+  const detail = recipients.map((r, i) => `${r.phone}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
   return { ok: results.some(r => r.ok), detail };
 }
 
 export async function deliverBrief(brief) {
   const toAll = allEmails();
-  const phones = allPhones();
+  const recipients = allRecipients();
   const email = await sendEmail(brief);
   const whatsapp = await sendWhatsApp(brief);
   const meta = markSent(brief.id, {
     email: { ...email, at: new Date().toISOString(), to: toAll },
-    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: phones.join(", ") },
+    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: recipients.map(r => r.phone).join(", ") },
   });
   return { email, whatsapp, meta };
 }
@@ -132,13 +130,13 @@ export async function sendWorkReport({ date, weekday, day, week, clientName, don
 }
 
 export async function sendWorkReportWhatsApp({ date, weekday, day, clientName, done, notDone }) {
-  const phones = allPhones();
-  if (!phones.length) return { ok: false, skipped: true, detail: "No phone numbers configured" };
+  const recipients = allRecipients();
+  if (!recipients.length) return { ok: false, skipped: true, detail: "No phone+apikey pairs configured — register with CallMeBot first" };
   const doneList = done.length ? done.map(t => `  ✓ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
   const notDoneList = notDone.length ? notDone.map(t => `  ✗ ${t.spaceName} — ${t.object}: ${t.work}`).join("\n") : "  (none)";
   const body = `*${clientName} House — Work Report*\n${weekday}, ${date} · Day ${day}\n\n*Done (${done.length}):*\n${doneList}\n\n*Not Done (${notDone.length}):*\n${notDoneList}`;
-  const results = await Promise.all(phones.map(p => sendWhatsAppTo(p, body)));
-  const detail = phones.map((p, i) => `${p}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
+  const results = await Promise.all(recipients.map(r => sendWhatsAppTo(r.phone, r.apiKey, body)));
+  const detail = recipients.map((r, i) => `${r.phone}: ${results[i].ok ? "sent" : results[i].detail}`).join("; ");
   return { ok: results.some(r => r.ok), detail };
 }
 
