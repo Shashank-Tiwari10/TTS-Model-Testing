@@ -215,6 +215,15 @@ const PAGE = `<!doctype html>
   tr.done-row td { background: #f0fdf4; }
   .plan-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
   .count-done { color: #16a34a; font-weight: 600; } .count-notdone { color: #dc2626; font-weight: 600; }
+  .seg-charts { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 18px; }
+  .seg-chart { flex: 1; min-width: 260px; }
+  .seg-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #78716c; margin-bottom: 6px; }
+  .seg-bar-bg { height: 28px; background: #fee2e2; border-radius: 999px; overflow: hidden; position: relative; }
+  .seg-bar-fill { height: 100%; background: #bbf7d0; border-radius: 999px 0 0 999px; transition: width .3s ease; }
+  .seg-bar-fill.full { border-radius: 999px; }
+  .seg-nums { font-size: 13px; margin-top: 5px; }
+  .seg-nums .done { color: #16a34a; font-weight: 600; } .seg-nums .notdone { color: #dc2626; font-weight: 600; }
+  .seg-pct { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; font-weight: 700; color: #172554; }
 </style></head>
 <body><div class="wrap">
   <div id="login" class="hidden">
@@ -370,6 +379,14 @@ function switchTab(name) {
 
 // --- Daily Working Plan (Zahab client only) ---
 let currentPlan = null;
+let isReadOnly = false;
+function lsKey(date) { return "zahab_progress_" + date; }
+function lsSave(date, doneIds, notDoneIds) {
+  localStorage.setItem(lsKey(date), JSON.stringify({ date, doneIds, notDoneIds, savedAt: new Date().toISOString() }));
+}
+function lsLoad(date) {
+  try { return JSON.parse(localStorage.getItem(lsKey(date))); } catch { return null; }
+}
 async function loadPlan() {
   const d = $("planDate").value;
   if (!d) return;
@@ -382,7 +399,9 @@ async function loadPlan() {
     return;
   }
   currentPlan = p;
-  const doneSet = new Set((p.progress?.doneIds || []).map(String));
+  const localProg = isReadOnly ? lsLoad(p.date) : null;
+  const progSource = localProg || p.progress;
+  const doneSet = new Set((progSource?.doneIds || []).map(String));
   $("planHead").textContent = \`Day \${p.day} of 78 · \${p.weekday} · Week \${p.week} · \${p.tasks.length} tasks · ~\${p.totalMinutes} min\`;
   const bySpace = new Map();
   for (const t of p.tasks) {
@@ -402,6 +421,7 @@ async function loadPlan() {
   $("planCard").innerHTML = \`<h2>\${esc(p.clientName)} — Working Plan · \${p.weekday}, \${p.date}</h2>
     <div style="overflow-x:auto"><table class="plan">
       <tr><th>Space</th><th>Object</th><th>Work</th><th>Phase</th><th>Frequency</th><th>Time</th><th>Done</th></tr>\${rows}</table></div>
+    <div id="segCharts" class="seg-charts"></div>
     <div class="plan-actions">
       <span id="planCounts"></span>
       <button onclick="savePlanProgress()">Save Progress</button>
@@ -420,6 +440,30 @@ function updatePlanCounts() {
   const done = [...all].filter(c => c.checked).length;
   const el = $("planCounts");
   if (el) el.innerHTML = \`<span class="count-done">✓ \${done} Done</span> · <span class="count-notdone">✗ \${all.length - done} Not Done</span>\`;
+  renderSegCharts();
+}
+function renderSegCharts() {
+  if (!currentPlan) return;
+  const cbs = document.querySelectorAll(".tick-cb");
+  const taskMap = new Map(currentPlan.tasks.map(t => [String(t.id), t]));
+  let r = { done: 0, total: 0 }, d = { done: 0, total: 0 };
+  cbs.forEach(cb => {
+    const t = taskMap.get(cb.dataset.taskId);
+    if (!t) return;
+    const bucket = (t.freq <= 6) ? r : d;
+    bucket.total++;
+    if (cb.checked) bucket.done++;
+  });
+  function bar(label, b) {
+    const pct = b.total ? Math.round(b.done / b.total * 100) : 0;
+    return \`<div class="seg-chart">
+      <div class="seg-label">\${label}</div>
+      <div class="seg-bar-bg"><div class="seg-bar-fill \${pct===100?'full':''}" style="width:\${pct}%"></div><span class="seg-pct">\${pct}%</span></div>
+      <div class="seg-nums"><span class="done">✓ \${b.done}</span> / \${b.total} done · <span class="notdone">✗ \${b.total - b.done} missed</span></div>
+    </div>\`;
+  }
+  const el = $("segCharts");
+  if (el) el.innerHTML = bar("Routine (daily – every 6 days)", r) + bar("Deep Clean (every 12+ days)", d);
 }
 async function savePlanProgress() {
   if (!currentPlan) return;
@@ -427,8 +471,13 @@ async function savePlanProgress() {
   const doneIds = [], notDoneIds = [];
   all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
   $("planStatus").textContent = "Saving…";
-  const r = await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
-  $("planStatus").textContent = r.error ? r.error : \`Saved — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+  if (isReadOnly) {
+    lsSave(currentPlan.date, doneIds, notDoneIds);
+    $("planStatus").textContent = \`Saved locally — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+  } else {
+    const r = await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
+    $("planStatus").textContent = r.error ? r.error : \`Saved — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+  }
 }
 async function sharePlanReport() {
   if (!currentPlan) return;
@@ -473,5 +522,5 @@ async function saveSetup() {
   $("setStatus").textContent = r.error ? r.error : "Saved — next generation uses this setup. Push to GitHub to apply it to the nightly cloud run too.";
 }
 
-api("/api/me").then(m => { if (m.readOnly) $("genCard").classList.add("hidden"); show(m.signedIn ? "app" : "login"); if (m.signedIn) refresh(); });
+api("/api/me").then(m => { isReadOnly = !!m.readOnly; if (m.readOnly) $("genCard").classList.add("hidden"); show(m.signedIn ? "app" : "login"); if (m.signedIn) refresh(); });
 </script></body></html>`;
