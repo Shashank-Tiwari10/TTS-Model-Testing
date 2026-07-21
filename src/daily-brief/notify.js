@@ -6,11 +6,10 @@
 import nodemailer from "nodemailer";
 import axios from "axios";
 import { markSent } from "./generate.js";
-
-const TO_EMAIL = process.env.BRIEF_TO_EMAIL || "mainshashanktiwari14@gmail.com";
-const TO_PHONE = process.env.BRIEF_TO_PHONE || "+919569598949";
+import { getSettings } from "./settings.js";
 
 export async function sendEmail(brief) {
+  const TO_EMAIL = getSettings().toEmail;
   const { SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_USER || !SMTP_PASS) {
     return { ok: false, skipped: true, detail: "SMTP_USER / SMTP_PASS not set in .env" };
@@ -48,6 +47,7 @@ export async function sendEmail(brief) {
 }
 
 export async function sendWhatsApp(brief) {
+  const TO_PHONE = getSettings().toPhone;
   const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM } = process.env;
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
     return { ok: false, skipped: true, detail: "Twilio credentials not set in .env — WhatsApp skipped" };
@@ -72,11 +72,12 @@ export async function sendWhatsApp(brief) {
 }
 
 export async function deliverBrief(brief) {
+  const { toEmail, toPhone } = getSettings();
   const email = await sendEmail(brief);
   const whatsapp = await sendWhatsApp(brief);
   const meta = markSent(brief.id, {
-    email: { ...email, at: new Date().toISOString(), to: TO_EMAIL },
-    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: TO_PHONE },
+    email: { ...email, at: new Date().toISOString(), to: toEmail },
+    whatsapp: { ...whatsapp, at: new Date().toISOString(), to: toPhone },
   });
   return { email, whatsapp, meta };
 }

@@ -9,9 +9,10 @@ import express from "express";
 import { createHmac, timingSafeEqual } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
-import { istDateParts } from "./plan.js";
+import { istDateParts, scheduleForDate } from "./plan.js";
 import { generateBrief, loadBrief, listBriefs, BRIEFS_DIR } from "./generate.js";
 import { deliverBrief } from "./notify.js";
+import { getSettings, saveSettings, AZURE_VOICES, TRANSLATE_MODELS } from "./settings.js";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "shashank@admin.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "royal2026";
@@ -49,6 +50,27 @@ export function createApp() {
     res.json({ ok: true });
   });
   app.get("/api/me", (req, res) => res.json({ signedIn: isAuthed(req), readOnly: READ_ONLY }));
+
+  // Zahab's daily working plan — the schedule tasks behind each brief (this client only).
+  app.get("/api/plan", requireAuth, (req, res) => {
+    const date = String(req.query.date || istDateParts().iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    res.json(scheduleForDate(date));
+  });
+
+  // TTS setup — drives voice, translation model, recipients for every generation.
+  app.get("/api/settings", requireAuth, (_req, res) =>
+    res.json({ settings: getSettings(), voices: AZURE_VOICES, models: TRANSLATE_MODELS, readOnly: READ_ONLY }));
+  app.post("/api/settings", requireAuth, (req, res) => {
+    if (READ_ONLY) {
+      return res.status(400).json({ error: "Setup is view-only online. Change it locally in the console (or edit src/daily-brief/settings.json) and push — the nightly run and this site pick it up." });
+    }
+    try {
+      res.json({ ok: true, settings: saveSettings(req.body) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.get("/api/briefs", requireAuth, (_req, res) => res.json(listBriefs()));
   app.get("/api/briefs/:id", requireAuth, (req, res) => {
@@ -116,6 +138,13 @@ const PAGE = `<!doctype html>
   audio { width: 100%; margin-top: 10px; }
   .hidden { display: none; }
   .crown { width: 44px; height: 44px; border-radius: 12px; background: #172554; color: #fde68a; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 10px; }
+  .tab { background: #f5f5f4; color: #172554; margin-top: 0; }
+  .tab.active { background: #172554; color: #fef3c7; }
+  select { width: 100%; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 10px; font-size: 14px; margin-top: 6px; background: #fff; }
+  table.plan { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.plan th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #78716c; padding: 8px 10px; border-bottom: 1px solid #e7e5e4; }
+  table.plan td { padding: 7px 10px; border-bottom: 1px solid #f5f5f4; vertical-align: top; }
+  td.space-cell { font-weight: 600; color: #172554; background: #fafaf9; }
 </style></head>
 <body><div class="wrap">
   <div id="login" class="hidden">
@@ -135,16 +164,49 @@ const PAGE = `<!doctype html>
         <div class="sub">Azure Swara voice note · OpenAI translation · new brief every evening for the next day</div></div>
       <button class="ghost" onclick="logout()">Sign Out</button>
     </div>
-    <div class="card" id="genCard">
-      <div class="row">
-        <button id="genBtn" onclick="generateToday()">Generate Today's Brief</button>
-        <input id="genDate" type="date" style="width:auto;margin-top:16px">
-        <button class="ghost" onclick="generateForDate()">Generate for Date</button>
-        <span id="genStatus" class="sub"></span>
+    <div class="row" style="margin-bottom:16px">
+      <button class="tab active" id="tab-briefs" onclick="switchTab('briefs')">Briefs</button>
+      <button class="tab" id="tab-plan" onclick="switchTab('plan')">Daily Working Plan</button>
+      <button class="tab" id="tab-setup" onclick="switchTab('setup')">TTS Setup</button>
+    </div>
+
+    <div id="view-briefs">
+      <div class="card" id="genCard">
+        <div class="row">
+          <button id="genBtn" onclick="generateToday()">Generate Today's Brief</button>
+          <input id="genDate" type="date" style="width:auto;margin-top:16px">
+          <button class="ghost" onclick="generateForDate()">Generate for Date</button>
+          <span id="genStatus" class="sub"></span>
+        </div>
+      </div>
+      <div class="card"><h2>Briefs</h2><div id="list" class="sub">Loading…</div></div>
+      <div id="detail" class="card hidden"></div>
+    </div>
+
+    <div id="view-plan" class="hidden">
+      <div class="card">
+        <div class="row">
+          <label style="margin-top:0">Date</label>
+          <input id="planDate" type="date" style="width:auto;margin-top:0">
+          <button class="ghost" style="margin-top:0" onclick="loadPlan()">Show Plan</button>
+          <span id="planHead" class="sub"></span>
+        </div>
+      </div>
+      <div class="card" id="planCard"><div class="sub">Pick a date to see Zahab and Rishabh's working plan for that day.</div></div>
+    </div>
+
+    <div id="view-setup" class="hidden">
+      <div class="card">
+        <h2>TTS Setup — Zahab's daily brief pipeline</h2>
+        <div class="sub">These settings drive every generation: the working plan for the day is scripted in English, translated by the OpenAI model below, and spoken by the Azure voice below. Saved settings are used by the local console and, once pushed, by the nightly 8 PM IST GitHub run.</div>
+        <label>Azure Voice (voice note)</label><select id="setVoice"></select>
+        <label>OpenAI Translation Model</label><select id="setModel"></select>
+        <label>Deliver to Email</label><input id="setEmail" type="email">
+        <label>Deliver to WhatsApp Number</label><input id="setPhone" type="text">
+        <label>Local Auto-Send Time (IST, Mon–Sat — only when the local server runs with BRIEF_AUTO_SEND=true; the cloud run is fixed at 20:00 IST in the GitHub workflow)</label><input id="setTime" type="text" placeholder="06:30">
+        <div class="row"><button id="setSave" onclick="saveSetup()">Save Setup</button><span id="setStatus" class="sub"></span></div>
       </div>
     </div>
-    <div class="card"><h2>Briefs</h2><div id="list" class="sub">Loading…</div></div>
-    <div id="detail" class="card hidden"></div>
   </div>
 </div>
 <script>
@@ -219,5 +281,69 @@ async function sendBrief(id) {
   refresh();
 }
 function esc(s) { return String(s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+// --- Tabs ---
+function switchTab(name) {
+  for (const t of ["briefs","plan","setup"]) {
+    $("view-" + t).classList.toggle("hidden", t !== name);
+    $("tab-" + t).classList.toggle("active", t === name);
+  }
+  if (name === "plan" && !$("planDate").value) { $("planDate").value = new Date().toISOString().slice(0,10); loadPlan(); }
+  if (name === "setup") loadSetup();
+}
+
+// --- Daily Working Plan (Zahab client only) ---
+async function loadPlan() {
+  const d = $("planDate").value;
+  if (!d) return;
+  $("planHead").textContent = "Loading…";
+  const p = await api("/api/plan?date=" + d);
+  if (p.off) {
+    $("planHead").textContent = "";
+    $("planCard").innerHTML = '<div class="sub">' + esc(p.reason) + '</div>';
+    return;
+  }
+  $("planHead").textContent = \`Day \${p.day} of 78 · \${p.weekday} · Week \${p.week} · \${p.tasks.length} tasks · ~\${p.totalMinutes} min\`;
+  const bySpace = new Map();
+  for (const t of p.tasks) {
+    if (!bySpace.has(t.spaceName)) bySpace.set(t.spaceName, []);
+    bySpace.get(t.spaceName).push(t);
+  }
+  let rows = "";
+  for (const [space, tasks] of bySpace) {
+    tasks.forEach((t, i) => {
+      rows += \`<tr>\${i === 0 ? \`<td class="space-cell" rowspan="\${tasks.length}">\${esc(space)}</td>\` : ""}
+        <td>\${esc(t.object)}</td><td>\${esc(t.work)}</td><td>\${esc(t.phase)}</td>
+        <td>\${t.freq === 1 ? "Daily" : "Every " + t.freq + " days"}</td><td>\${t.timeMinutes} min</td></tr>\`;
+    });
+  }
+  $("planCard").innerHTML = \`<h2>\${esc(p.clientName)} — Working Plan · \${p.weekday}, \${p.date}</h2>
+    <div style="overflow-x:auto"><table class="plan">
+      <tr><th>Space</th><th>Object</th><th>Work</th><th>Phase</th><th>Frequency</th><th>Time</th></tr>\${rows}</table></div>\`;
+}
+
+// --- TTS Setup ---
+async function loadSetup() {
+  const r = await api("/api/settings");
+  $("setVoice").innerHTML = r.voices.map(v => \`<option value="\${v.id}" \${v.id === r.settings.voice ? "selected" : ""}>\${esc(v.label)}</option>\`).join("");
+  $("setModel").innerHTML = r.models.map(m => \`<option value="\${m}" \${m === r.settings.translateModel ? "selected" : ""}>\${m}</option>\`).join("");
+  $("setEmail").value = r.settings.toEmail;
+  $("setPhone").value = r.settings.toPhone;
+  $("setTime").value = r.settings.localSendTime;
+  if (r.readOnly) {
+    $("setSave").classList.add("hidden");
+    $("setStatus").textContent = "View-only online — change setup from the local console (or edit settings.json) and push; the nightly run and this site follow it.";
+    for (const id of ["setVoice","setModel","setEmail","setPhone","setTime"]) $(id).disabled = true;
+  }
+}
+async function saveSetup() {
+  $("setStatus").textContent = "Saving…";
+  const r = await api("/api/settings", { method: "POST", body: JSON.stringify({
+    voice: $("setVoice").value, translateModel: $("setModel").value,
+    toEmail: $("setEmail").value, toPhone: $("setPhone").value, localSendTime: $("setTime").value,
+  })});
+  $("setStatus").textContent = r.error ? r.error : "Saved — next generation uses this setup. Push to GitHub to apply it to the nightly cloud run too.";
+}
+
 api("/api/me").then(m => { if (m.readOnly) $("genCard").classList.add("hidden"); show(m.signedIn ? "app" : "login"); if (m.signedIn) refresh(); });
 </script></body></html>`;

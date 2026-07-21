@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3500,
       "autoPort": false
+    },
+    {
+      "name": "behalf-console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "brief:server"],
+      "port": 3600
     }
   ]
 }

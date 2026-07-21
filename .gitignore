@@ -8,6 +8,7 @@ output/
 !.claude/launch.json
 !src/daily-brief/zahab-plan.json
 !src/daily-brief/briefs/**/meta.json
+!src/daily-brief/settings.json
 !vercel.json
 uploads/
 TTS Voice/

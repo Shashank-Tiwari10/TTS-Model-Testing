@@ -6,6 +6,7 @@ import { createApp } from "./app.js";
 import { istDateParts } from "./plan.js";
 import { generateBrief } from "./generate.js";
 import { deliverBrief } from "./notify.js";
+import { getSettings } from "./settings.js";
 
 const PORT = parseInt(process.env.BRIEF_PORT || "3600");
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "shashank@admin.com";
@@ -14,11 +15,10 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "shashank@admin.com";
 // Normally OFF — the GitHub Actions workflow (20:00 IST, next-day brief) owns delivery.
 const autoSentDates = new Set();
 if (String(process.env.BRIEF_AUTO_SEND).toLowerCase() === "true") {
-  const sendAt = process.env.BRIEF_SEND_TIME || "06:30";
-  console.log(`[auto] enabled — will generate+send Mon–Sat at ${sendAt} IST`);
+  console.log(`[auto] enabled — will generate+send Mon–Sat at ${getSettings().localSendTime} IST`);
   setInterval(async () => {
     const now = istDateParts();
-    if (now.weekday === "Sun" || now.hhmm !== sendAt || autoSentDates.has(now.iso)) return;
+    if (now.weekday === "Sun" || now.hhmm !== getSettings().localSendTime || autoSentDates.has(now.iso)) return;
     autoSentDates.add(now.iso);
     try {
       const brief = await generateBrief(now.iso);

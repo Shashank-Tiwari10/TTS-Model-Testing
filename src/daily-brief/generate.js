@@ -10,13 +10,10 @@ import { generateEnglishScript } from "../voice-command/command-generator.js";
 import { translateToKhadiboliRoman, translateToDevanagari } from "../voice-command/translator.js";
 import * as azure from "../providers/azure-tts.js";
 import { scheduleForDate } from "./plan.js";
+import { getSettings } from "./settings.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const BRIEFS_DIR = join(__dirname, "briefs");
-
-const VOICE = process.env.BRIEF_VOICE || "hi-IN-SwaraNeural";
-// "Latest OpenAI model" per client request, with a safe fallback chain.
-const TRANSLATE_MODELS = [process.env.BRIEF_TRANSLATE_MODEL || "gpt-5.6-terra", "gpt-4o"];
 
 export function briefId(sched) {
   return `${sched.date}_day-${String(sched.day).padStart(2, "0")}`;
@@ -50,9 +47,11 @@ function chunkForTTS(text, maxChars = 800) {
   return chunks;
 }
 
-async function translateWithFallback(englishScript) {
+async function translateWithFallback(englishScript, preferred) {
+  // "Latest OpenAI model" per client request, with a safe fallback chain.
+  const models = [...new Set([preferred, "gpt-4o"])];
   let lastErr;
-  for (const model of TRANSLATE_MODELS) {
+  for (const model of models) {
     try {
       const roman = await translateToKhadiboliRoman(englishScript, model);
       return { roman, model };
@@ -74,10 +73,12 @@ export async function generateBrief(isoDate, { force = false } = {}) {
 
   console.log(`[brief] ${id}: ${sched.tasks.length} tasks (~${sched.totalMinutes} min), weekday ${sched.weekday}, cycle ${sched.cycle}`);
 
+  const settings = getSettings();
+  const VOICE = settings.voice;
   const dayInfo = { day: sched.day, weekday: sched.weekday, week: sched.week };
   const english = generateEnglishScript(sched.tasks, dayInfo);
 
-  const { roman, model: translateModel } = await translateWithFallback(english.script);
+  const { roman, model: translateModel } = await translateWithFallback(english.script, settings.translateModel);
   let devanagari = "";
   try {
     devanagari = await translateToDevanagari(roman, translateModel);
