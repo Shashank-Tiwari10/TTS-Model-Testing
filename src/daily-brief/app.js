@@ -606,14 +606,22 @@ async function savePlanProgress() {
 }
 async function sharePlanReport() {
   if (!currentPlan) return;
+  const btn = document.querySelector('button[onclick="sharePlanReport()"]');
+  if (btn) btn.disabled = true;
   const { doneIds, notDoneIds, extraDone } = gatherProgress();
-  $("planStatus").textContent = "Saving & sending report…";
-  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds, extraDone }) });
-  if (r.error) { $("planStatus").textContent = r.error; return; }
-  currentPlan.progress = { doneIds, notDoneIds };
-  $("planStatus").textContent =
-    "Email: " + (r.email.ok ? "sent ✓" : r.email.skipped ? "skipped" : "failed — " + r.email.detail) +
-    " · WhatsApp: " + (r.whatsapp.ok ? "sent ✓" : r.whatsapp.skipped ? "skipped" : "failed — " + r.whatsapp.detail);
+  $("planStatus").textContent = "Saving & sending report… (this takes a few seconds)";
+  try {
+    const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds, extraDone }) });
+    if (r.error) { $("planStatus").textContent = r.error; return; }
+    currentPlan.progress = { doneIds, notDoneIds };
+    $("planStatus").textContent =
+      "Email: " + (r.email?.ok ? "sent ✓" : r.email?.skipped ? "skipped" : "failed — " + (r.email?.detail || "unknown")) +
+      " · WhatsApp: " + (r.whatsapp?.ok ? "sent ✓" : r.whatsapp?.skipped ? "skipped" : "failed — " + (r.whatsapp?.detail || "unknown"));
+  } catch (e) {
+    $("planStatus").textContent = "Failed — " + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // --- TTS Setup ---
