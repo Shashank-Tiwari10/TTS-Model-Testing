@@ -7,12 +7,29 @@
 import "./env.js";
 import express from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { istDateParts, scheduleForDate } from "./plan.js";
 import { generateBrief, loadBrief, listBriefs, BRIEFS_DIR } from "./generate.js";
-import { deliverBrief } from "./notify.js";
+import { deliverBrief, sendWorkReport, sendWorkReportWhatsApp } from "./notify.js";
 import { getSettings, saveSettings, AZURE_VOICES, TRANSLATE_MODELS } from "./settings.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROGRESS_DIR = join(__dirname, "progress");
+
+function loadProgress(date) {
+  const p = join(PROGRESS_DIR, `${date}.json`);
+  if (!existsSync(p)) return null;
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
+}
+
+function saveProgress(date, doneIds, notDoneIds) {
+  mkdirSync(PROGRESS_DIR, { recursive: true });
+  const data = { date, doneIds, notDoneIds, savedAt: new Date().toISOString() };
+  writeFileSync(join(PROGRESS_DIR, `${date}.json`), JSON.stringify(data, null, 2));
+  return data;
+}
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "shashank@admin.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "royal2026";
@@ -55,7 +72,43 @@ export function createApp() {
   app.get("/api/plan", requireAuth, (req, res) => {
     const date = String(req.query.date || istDateParts().iso);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
-    res.json(scheduleForDate(date));
+    const sched = scheduleForDate(date);
+    const prog = loadProgress(date);
+    res.json({ ...sched, progress: prog ? { doneIds: prog.doneIds, notDoneIds: prog.notDoneIds, savedAt: prog.savedAt } : null });
+  });
+
+  // Load saved progress (tick marks) for a date.
+  app.get("/api/plan/progress", requireAuth, (req, res) => {
+    const date = String(req.query.date || istDateParts().iso);
+    const prog = loadProgress(date);
+    res.json(prog || { date, doneIds: [], notDoneIds: [] });
+  });
+
+  // Save work progress: split tasks into done / not-done.
+  app.post("/api/plan/progress", requireAuth, (req, res) => {
+    if (READ_ONLY) return res.status(400).json({ error: "Progress tracking is not available online. Use the local console." });
+    const { date, doneIds, notDoneIds } = req.body || {};
+    if (!date || !Array.isArray(doneIds) || !Array.isArray(notDoneIds)) {
+      return res.status(400).json({ error: "date, doneIds[], and notDoneIds[] are required" });
+    }
+    res.json({ ok: true, progress: saveProgress(date, doneIds, notDoneIds) });
+  });
+
+  // Share work report via email + WhatsApp.
+  app.post("/api/plan/share", requireAuth, async (req, res) => {
+    const { date } = req.body || {};
+    if (!date) return res.status(400).json({ error: "date is required" });
+    const prog = loadProgress(date);
+    if (!prog) return res.status(400).json({ error: "No saved progress for this date. Save progress first." });
+    const sched = scheduleForDate(date);
+    if (sched.off) return res.status(400).json({ error: sched.reason });
+    const taskMap = new Map(sched.tasks.map(t => [t.id, t]));
+    const done = (prog.doneIds || []).map(id => taskMap.get(id)).filter(Boolean);
+    const notDone = (prog.notDoneIds || []).map(id => taskMap.get(id)).filter(Boolean);
+    const report = { date, weekday: sched.weekday, day: sched.day, week: sched.week, clientName: sched.clientName, done, notDone, totalMinutes: sched.totalMinutes };
+    const email = await sendWorkReport(report);
+    const whatsapp = await sendWorkReportWhatsApp(report);
+    res.json({ email, whatsapp });
   });
 
   // TTS setup — drives voice, translation model, recipients for every generation.
@@ -145,6 +198,10 @@ const PAGE = `<!doctype html>
   table.plan th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #78716c; padding: 8px 10px; border-bottom: 1px solid #e7e5e4; }
   table.plan td { padding: 7px 10px; border-bottom: 1px solid #f5f5f4; vertical-align: top; }
   td.space-cell { font-weight: 600; color: #172554; background: #fafaf9; }
+  .tick-cb { width: 18px; height: 18px; cursor: pointer; accent-color: #16a34a; }
+  tr.done-row td { background: #f0fdf4; }
+  .plan-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .count-done { color: #16a34a; font-weight: 600; } .count-notdone { color: #dc2626; font-weight: 600; }
 </style></head>
 <body><div class="wrap">
   <div id="login" class="hidden">
@@ -293,16 +350,20 @@ function switchTab(name) {
 }
 
 // --- Daily Working Plan (Zahab client only) ---
+let currentPlan = null;
 async function loadPlan() {
   const d = $("planDate").value;
   if (!d) return;
   $("planHead").textContent = "Loading…";
   const p = await api("/api/plan?date=" + d);
   if (p.off) {
+    currentPlan = null;
     $("planHead").textContent = "";
     $("planCard").innerHTML = '<div class="sub">' + esc(p.reason) + '</div>';
     return;
   }
+  currentPlan = p;
+  const doneSet = new Set((p.progress?.doneIds || []).map(String));
   $("planHead").textContent = \`Day \${p.day} of 78 · \${p.weekday} · Week \${p.week} · \${p.tasks.length} tasks · ~\${p.totalMinutes} min\`;
   const bySpace = new Map();
   for (const t of p.tasks) {
@@ -312,14 +373,63 @@ async function loadPlan() {
   let rows = "";
   for (const [space, tasks] of bySpace) {
     tasks.forEach((t, i) => {
-      rows += \`<tr>\${i === 0 ? \`<td class="space-cell" rowspan="\${tasks.length}">\${esc(space)}</td>\` : ""}
+      const checked = doneSet.has(String(t.id));
+      rows += \`<tr class="\${checked ? "done-row" : ""}" id="row-\${t.id}">\${i === 0 ? \`<td class="space-cell" rowspan="\${tasks.length}">\${esc(space)}</td>\` : ""}
         <td>\${esc(t.object)}</td><td>\${esc(t.work)}</td><td>\${esc(t.phase)}</td>
-        <td>\${t.freq === 1 ? "Daily" : "Every " + t.freq + " days"}</td><td>\${t.timeMinutes} min</td></tr>\`;
+        <td>\${t.freq === 1 ? "Daily" : "Every " + t.freq + " days"}</td><td>\${t.timeMinutes} min</td>
+        <td><input type="checkbox" class="tick-cb" data-task-id="\${t.id}" \${checked ? "checked" : ""} onchange="tickChanged(this)"></td></tr>\`;
     });
   }
   $("planCard").innerHTML = \`<h2>\${esc(p.clientName)} — Working Plan · \${p.weekday}, \${p.date}</h2>
     <div style="overflow-x:auto"><table class="plan">
-      <tr><th>Space</th><th>Object</th><th>Work</th><th>Phase</th><th>Frequency</th><th>Time</th></tr>\${rows}</table></div>\`;
+      <tr><th>Space</th><th>Object</th><th>Work</th><th>Phase</th><th>Frequency</th><th>Time</th><th>Done</th></tr>\${rows}</table></div>
+    <div class="plan-actions">
+      <span id="planCounts"></span>
+      <button onclick="savePlanProgress()">Save Progress</button>
+      <button class="ghost" onclick="sharePlanReport()">Share Report</button>
+      <span id="planStatus" class="sub"></span>
+    </div>\`;
+  updatePlanCounts();
+}
+function tickChanged(cb) {
+  const row = document.getElementById("row-" + cb.dataset.taskId);
+  if (row) row.classList.toggle("done-row", cb.checked);
+  updatePlanCounts();
+}
+function updatePlanCounts() {
+  const all = document.querySelectorAll(".tick-cb");
+  const done = [...all].filter(c => c.checked).length;
+  const el = $("planCounts");
+  if (el) el.innerHTML = \`<span class="count-done">✓ \${done} Done</span> · <span class="count-notdone">✗ \${all.length - done} Not Done</span>\`;
+}
+async function savePlanProgress() {
+  if (!currentPlan) return;
+  const all = document.querySelectorAll(".tick-cb");
+  const doneIds = [], notDoneIds = [];
+  all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
+  $("planStatus").textContent = "Saving…";
+  const r = await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
+  $("planStatus").textContent = r.error ? r.error : \`Saved — \${doneIds.length} done, \${notDoneIds.length} not done.\`;
+}
+async function sharePlanReport() {
+  if (!currentPlan) return;
+  const all = document.querySelectorAll(".tick-cb");
+  const hasUnsaved = !currentPlan.progress || [...all].some(cb => {
+    const wasDone = (currentPlan.progress?.doneIds || []).includes(cb.dataset.taskId);
+    return cb.checked !== wasDone;
+  });
+  if (hasUnsaved) {
+    $("planStatus").textContent = "Saving progress first…";
+    const doneIds = [], notDoneIds = [];
+    all.forEach(cb => { (cb.checked ? doneIds : notDoneIds).push(cb.dataset.taskId); });
+    await api("/api/plan/progress", { method: "POST", body: JSON.stringify({ date: currentPlan.date, doneIds, notDoneIds }) });
+  }
+  $("planStatus").textContent = "Sending report…";
+  const r = await api("/api/plan/share", { method: "POST", body: JSON.stringify({ date: currentPlan.date }) });
+  if (r.error) { $("planStatus").textContent = r.error; return; }
+  $("planStatus").textContent =
+    "Email: " + (r.email.ok ? "sent ✓" : r.email.skipped ? "skipped" : "failed — " + r.email.detail) +
+    " · WhatsApp: " + (r.whatsapp.ok ? "sent ✓" : r.whatsapp.skipped ? "skipped" : "failed — " + r.whatsapp.detail);
 }
 
 // --- TTS Setup ---

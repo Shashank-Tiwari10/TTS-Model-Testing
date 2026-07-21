@@ -50,7 +50,7 @@ export function scheduleForDate(isoDate) {
   const dayInWeek = (day - 1) % 6;
   const week = Math.floor((day - 1) / 6) + 1;
   const taskIds = plan.dayTasks[day - 1] || [];
-  const tasks = taskIds.map((id) => plan.tasks[id]);
+  const tasks = taskIds.map((id) => ({ id, ...plan.tasks[id] }));
   return {
     off: false,
     date: isoDate,
