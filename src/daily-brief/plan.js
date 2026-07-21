@@ -32,24 +32,38 @@ export function istDateParts(date = new Date()) {
 }
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CLIENT_CODE = "ZR";
+const pad2 = (n) => String(n).padStart(2, "0");
 
-function slug(s) {
-  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+let idMap = null;
+function buildIdMap() {
+  if (idMap) return idMap;
+  const plan = loadPlan();
+  idMap = new Map();
+  const spaceObjs = new Map();
+  for (let i = 0; i < plan.tasks.length; i++) {
+    const t = plan.tasks[i];
+    const sNo = t.spaceNo;
+    if (!spaceObjs.has(sNo)) spaceObjs.set(sNo, new Map());
+    const objs = spaceObjs.get(sNo);
+    if (!objs.has(t.object)) objs.set(t.object, new Map());
+    const works = objs.get(t.object);
+    if (!works.has(t.work)) works.set(t.work, works.size + 1);
+    const oIdx = [...objs.keys()].indexOf(t.object) + 1;
+    const wIdx = works.get(t.work);
+    idMap.set(i, `${CLIENT_CODE}_S${pad2(sNo)}_O${pad2(oIdx)}_W${pad2(wIdx)}`);
+  }
+  return idMap;
 }
 
-function taskId(t) {
-  return `${slug(t.spaceName)}_${slug(t.object)}_${slug(t.work)}`;
-}
-
-// Working-day distance from the anchor (counting only Mon–Sat), for an IST calendar date.
 export function scheduleForDate(isoDate) {
   const plan = loadPlan();
+  const ids = buildIdMap();
   const anchor = new Date(plan.quarterAnchor + "T00:00:00Z");
   const target = new Date(isoDate + "T00:00:00Z");
   const diffDays = Math.round((target - anchor) / 86400000);
   if (diffDays < 0) return { off: true, reason: `Schedule starts ${plan.quarterAnchor}` };
 
-  // Anchor is a Monday; within each 7-day block, offset 6 is Sunday.
   if (diffDays % 7 === 6) return { off: true, reason: "Sunday — weekly off, no cleaning brief" };
 
   const workingDays = Math.floor(diffDays / 7) * 6 + (diffDays % 7);
@@ -58,15 +72,7 @@ export function scheduleForDate(isoDate) {
   const dayInWeek = (day - 1) % 6;
   const week = Math.floor((day - 1) / 6) + 1;
   const taskIdx = plan.dayTasks[day - 1] || [];
-  const raw = taskIdx.map((i) => plan.tasks[i]);
-  const seen = new Map();
-  const tasks = raw.map((t) => {
-    let id = taskId(t);
-    const count = (seen.get(id) || 0) + 1;
-    seen.set(id, count);
-    if (count > 1) id += `-${count}`;
-    return { id, ...t };
-  });
+  const tasks = taskIdx.map((i) => ({ id: ids.get(i), ...plan.tasks[i] }));
   return {
     off: false,
     date: isoDate,
