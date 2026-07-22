@@ -5,5 +5,11 @@
       "includeFiles": "src/daily-brief/**"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index.js" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index.js" }],
+  "crons": [
+    {
+      "path": "/api/cron/daily-report",
+      "schedule": "30 12 * * *"
+    }
+  ]
 }

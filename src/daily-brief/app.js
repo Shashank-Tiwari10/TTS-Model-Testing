@@ -219,6 +219,28 @@ export function createApp() {
     }
   });
 
+  // Cron: auto-send yesterday's work report at 6 PM IST (called by Vercel cron or local scheduler).
+  app.get("/api/cron/daily-report", async (req, res) => {
+    const authHeader = req.headers["authorization"];
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const yesterday = new Date(Date.now() - 86400000);
+    const yIso = yesterday.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const prog = loadProgress(yIso);
+    if (!prog) return res.json({ skipped: true, detail: `No progress saved for ${yIso}` });
+    const sched = scheduleForDate(yIso);
+    if (sched.off) return res.json({ skipped: true, detail: sched.reason });
+    const taskMap = new Map(sched.tasks.map(t => [t.id, t]));
+    const done = (prog.doneIds || []).map(id => taskMap.get(id)).filter(Boolean);
+    const notDone = (prog.notDoneIds || []).map(id => taskMap.get(id)).filter(Boolean);
+    const report = { date: yIso, weekday: sched.weekday, day: sched.day, week: sched.week, clientName: sched.clientName, done, notDone, totalMinutes: sched.totalMinutes };
+    const email = await sendWorkReport(report);
+    const whatsapp = await sendWorkReportWhatsApp(report);
+    res.json({ date: yIso, email, whatsapp });
+  });
+
   app.get("/", (_req, res) => res.type("html").send(PAGE));
   return app;
 }
@@ -352,7 +374,7 @@ const PAGE = `<!doctype html>
       <div class="card">
         <div class="row">
           <label style="margin-top:0">Date</label>
-          <input id="planDate" type="date" style="width:auto;margin-top:0">
+          <input id="planDate" type="date" style="width:auto;margin-top:0" onchange="loadPlan()">
           <button class="ghost" style="margin-top:0" onclick="loadPlan()">Show Plan</button>
           <span id="planHead" class="sub"></span>
         </div>
@@ -366,7 +388,7 @@ const PAGE = `<!doctype html>
         <div class="sub">Each tile is one task. Hover for details.</div>
         <div class="ov-date-row" style="margin-top:14px">
           <label style="margin-top:0">Date</label>
-          <input id="ovDate" type="date" style="width:auto;margin-top:0">
+          <input id="ovDate" type="date" style="width:auto;margin-top:0" onchange="loadOverview()">
           <button class="ghost" style="margin-top:0" onclick="loadOverview()">Show</button>
           <span id="ovHead" class="sub"></span>
         </div>

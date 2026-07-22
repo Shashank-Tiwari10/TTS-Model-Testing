@@ -12,7 +12,8 @@
       "name": "behalf-console",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "brief:server"],
-      "port": 3600
+      "port": 3600,
+      "cwd": "E:\\VarMC.ai\\App_Development\\TTS model testing"
     }
   ]
 }
