@@ -16,15 +16,15 @@
   "sent": {
     "email": {
       "ok": true,
-      "detail": "sent to mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com (<061e9c84-3139-e16a-9092-d6a687cb651f@gmail.com>)",
-      "at": "2026-07-24T05:11:24.107Z",
+      "detail": "sent to mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com (<44abdbb6-2c66-8298-5f04-da8e27d5ace5@gmail.com>)",
+      "at": "2026-07-24T15:54:12.087Z",
       "to": "mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com"
     },
     "whatsapp": {
       "ok": false,
       "skipped": true,
       "detail": "No phone+apikey pairs configured — register with CallMeBot first",
-      "at": "2026-07-24T05:11:24.107Z",
+      "at": "2026-07-24T15:54:12.087Z",
       "to": ""
     }
   }
