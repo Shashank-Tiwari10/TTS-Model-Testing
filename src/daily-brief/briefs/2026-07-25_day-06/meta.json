@@ -1,0 +1,31 @@
+{
+  "id": "2026-07-25_day-06",
+  "client": "zahab_rishabh",
+  "clientName": "Zahab and Rishabh",
+  "date": "2026-07-25",
+  "day": 6,
+  "week": 1,
+  "weekday": "Sat",
+  "cycle": 1,
+  "totalTasks": 94,
+  "totalMinutes": 122.8,
+  "voice": "hi-IN-SwaraNeural",
+  "translateModel": "gpt-5.6-terra",
+  "audioBytes": 1688400,
+  "generatedAt": "2026-07-24T05:11:17.433Z",
+  "sent": {
+    "email": {
+      "ok": true,
+      "detail": "sent to mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com (<061e9c84-3139-e16a-9092-d6a687cb651f@gmail.com>)",
+      "at": "2026-07-24T05:11:24.107Z",
+      "to": "mainshashanktiwari14@gmail.com, gajrajbudhprakash@gmail.com"
+    },
+    "whatsapp": {
+      "ok": false,
+      "skipped": true,
+      "detail": "No phone+apikey pairs configured — register with CallMeBot first",
+      "at": "2026-07-24T05:11:24.107Z",
+      "to": ""
+    }
+  }
+}
