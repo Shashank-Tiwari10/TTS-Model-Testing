@@ -1,3 +1,20 @@
+// ── Default client config (overridden via options parameter per client) ──
+const DEFAULT_CLIENT = {
+  staffName:    process.env.HOMEKEEPER_NAME   || "Parvati",
+  ownerTitle:   process.env.OWNER_TITLE       || "Didi",
+  motherTongue: process.env.HOMEKEEPER_TONGUE || "nepali",
+};
+
+const REGULAR_FREQ_MAX = 4; // freq 1–4 = regular; > 4 = deep cleaning
+
+const DAY_NAMES = {
+  nepali: { Mon: "Sombaar",  Tue: "Mangalbaar", Wed: "Budhabaar",
+            Thu: "Bihibaar", Fri: "Sukrabaar",  Sat: "Sanibaar" },
+  hindi:  { Mon: "Somvaar",  Tue: "Mangalvaar", Wed: "Budhvaar",
+            Thu: "Guruvaar", Fri: "Shukravaar", Sat: "Shanivaar" },
+};
+
+// ── Space lists ──────────────────────────────────────────────────
 const KITCHEN_SPACES = [
   "Kitchen", "Dry Kitchen", "Wet Kitchen", "Wet Kitchen & Laundry"
 ];
@@ -18,7 +35,7 @@ const WORK_TYPE_ORDER = [
   "Water", "Wipe"
 ];
 
-// Sentence builders — conversational, owner-to-helper voice-message style
+// ── Sentence builders — conversational voice-message style ───────
 const WORK_SENTENCES = {
   "Dusting": (obj) => `do the Dusting of the ${obj} properly`,
   "Dusting + Arrange": (obj) => `do the Dusting and Arrange of the ${obj} — dust well and set everything back neatly`,
@@ -53,7 +70,11 @@ const WORK_SENTENCES = {
   "Add-On Work": (obj) => `complete the ${obj} for today`,
   "Segregation": (obj) => `${obj} — segregate dry and wet waste separately and dispose properly`,
   "Monitoring toiletry stock levels.": (obj) => `check the ${obj} and note what needs refilling`,
+  "Make Bed": (obj) => `do the Make Bed of the ${obj}`,
+  "Vacuum": (obj) => `do the Vacuum of the ${obj}`,
 };
+
+// ── Utility functions ────────────────────────────────────────────
 
 function plusToAnd(str) {
   return str.replace(/\s*\+\s*/g, " and ");
@@ -78,6 +99,8 @@ function joinList(items) {
   return items.slice(0, -1).join(", ") + ", and " + items[items.length - 1];
 }
 
+// ── Space classification ─────────────────────────────────────────
+
 function classifySpace(spaceName) {
   const upper = spaceName.toUpperCase();
   if (KITCHEN_SPACES.some(k => upper.includes(k.toUpperCase()))) return "kitchen";
@@ -88,6 +111,10 @@ function classifySpace(spaceName) {
   return "inner";
 }
 
+function isStaircase(spaceName) {
+  return /staircase|(?:^|\s)stair(?:s)?(?:\s|$)/i.test(spaceName);
+}
+
 function isFloorWork(work) {
   return FLOOR_WORKS.some(fw => work.toUpperCase().includes(fw.toUpperCase()));
 }
@@ -96,10 +123,33 @@ function isFloorObject(object) {
   return object.toUpperCase() === "FLOOR" || object.toUpperCase().startsWith("FLOOR ");
 }
 
+function isFloorTask(task) {
+  return isFloorObject(task.object) && isFloorWork(task.work);
+}
+
 function getWorkOrder(work) {
   const idx = WORK_TYPE_ORDER.findIndex(w => work.toUpperCase().includes(w.toUpperCase()));
   return idx >= 0 ? idx : 999;
 }
+
+// ── Object height classification (eye → sill → foot) ────────────
+
+function getObjectHeight(objectName) {
+  const upper = objectName.toUpperCase();
+  if (/CEILING|CHANDELIER|CURTAIN|DRAPE|WALL DECORATION|WALL ART|COBWEB|EXHAUST|OVERH[AE]+D|CHIMNEY/.test(upper)) return 0;
+  if (/^AC$|^AC\s/.test(upper) || upper.includes(" AC")) return 0;
+  if (upper.includes("CEILING FAN") || upper.includes("LIGHT FIXTURE")) return 0;
+  if (/^FLOOR$|^FLOOR\s|SKIRTING|BASEBOARD|DUSTBIN|UNDER.?STAIR|SPIRAL STAIRCASE|^CORD$/.test(upper)) return 2;
+  if (upper.endsWith(" MAT") || upper.includes("AREA RUG")) return 2;
+  return 1;
+}
+
+function isWCObject(objectName) {
+  const upper = objectName.toUpperCase();
+  return upper === "WC" || upper === "TOILET" || /^WC[/ ]/.test(upper);
+}
+
+// ── Whole-house category classification ──────────────────────────
 
 function classifyWholeHouseCategory(object, work) {
   const upper = (object + " " + work).toUpperCase();
@@ -109,82 +159,84 @@ function classifyWholeHouseCategory(object, work) {
   return "other";
 }
 
-export function classifyTasks(tasks) {
-  const phases = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-  const wholeHouseInserts = { clothes: [], water_bottles: [], toiletries: [] };
+// ── Floor zone splitting (staircase boundaries) ──────────────────
 
-  for (const task of tasks) {
-    const spaceType = classifySpace(task.spaceName);
-    const isFloor = isFloorObject(task.object) && isFloorWork(task.work);
-
-    if (spaceType === "whole_house" || task.spaceName.toUpperCase().includes("WHOLE HOUSE")) {
-      const cat = classifyWholeHouseCategory(task.object, task.work);
-      if (cat === "clothes") wholeHouseInserts.clothes.push(task);
-      else if (cat === "water_bottles") wholeHouseInserts.water_bottles.push(task);
-      else if (cat === "toiletries") wholeHouseInserts.toiletries.push(task);
-      else phases[6].push(task);
-      continue;
-    }
-
-    switch (spaceType) {
-      case "inner": isFloor ? phases[2].push(task) : phases[1].push(task); break;
-      case "outer": phases[3].push(task); break;
-      case "kitchen": phases[4].push(task); break;
-      case "bathroom": phases[5].push(task); break;
-      default: phases[6].push(task);
-    }
-  }
-
-  return { phases, wholeHouseInserts };
+function parseFloorLabel(staircaseName) {
+  const match = staircaseName.match(/[-–—]\s*(\w+)\s*$/);
+  if (!match) return "the next floor";
+  const dest = match[1].toUpperCase();
+  const labels = {
+    "GF": "the Ground Floor", "1F": "the First Floor",
+    "2F": "the Second Floor", "3F": "the Third Floor",
+    "4F": "the Fourth Floor", "BF": "the Basement", "RF": "the Roof",
+  };
+  return labels[dest] || dest;
 }
 
-function sortBySpaceAndWork(tasks) {
-  return tasks.sort((a, b) => {
-    if (a.spaceNo !== b.spaceNo) return a.spaceNo - b.spaceNo;
-    return getWorkOrder(a.work) - getWorkOrder(b.work);
+function splitIntoFloorZones(tasks) {
+  const sorted = [...tasks].sort((a, b) => a.spaceNo - b.spaceNo);
+  const spaceOrder = [];
+  const seen = new Set();
+  for (const t of sorted) {
+    if (!seen.has(t.spaceName)) { seen.add(t.spaceName); spaceOrder.push(t.spaceName); }
+  }
+
+  const zones = [];
+  let currentSpaces = [];
+  for (const spaceName of spaceOrder) {
+    currentSpaces.push(spaceName);
+    if (isStaircase(spaceName)) {
+      zones.push({ spaces: [...currentSpaces], staircase: spaceName });
+      currentSpaces = [];
+    }
+  }
+  if (currentSpaces.length > 0) zones.push({ spaces: currentSpaces, staircase: null });
+
+  return zones.map((z, idx) => {
+    const nameSet = new Set(z.spaces);
+    return {
+      index: idx,
+      label: idx === 0 ? "Ground Floor"
+           : z.staircase ? parseFloorLabel(zones[idx - 1]?.staircase || "").replace("the ", "")
+           : `Floor ${idx + 1}`,
+      spaces: z.spaces,
+      staircase: z.staircase,
+      tasks: sorted.filter(t => nameSet.has(t.spaceName)),
+    };
   });
 }
 
-function groupBySpace(tasks) {
-  const groups = {};
-  for (const t of tasks) {
-    if (!groups[t.spaceName]) groups[t.spaceName] = [];
-    groups[t.spaceName].push(t);
-  }
-  return groups;
-}
+// ── Build grouped clauses (merge same-work objects) ──────────────
 
-// Build one flowing paragraph for a space: merge same-work objects,
-// then join 2-3 clauses per sentence.
-function spaceParagraph(space, spaceTasks, opener) {
+function buildGroupedClauses(tasks) {
   const workGroups = {};
   const workOrder = [];
-  for (const t of spaceTasks) {
+  for (const t of tasks) {
     if (!workGroups[t.work]) { workGroups[t.work] = []; workOrder.push(t.work); }
     workGroups[t.work].push(t);
   }
-
   const clauses = [];
   for (const work of workOrder) {
     const items = workGroups[work];
     if (items.length >= 2) {
-      const objs = joinList(items.map(t => plusToAnd(t.object)));
-      clauses.push(clause(work, objs));
+      clauses.push(clause(work, joinList(items.map(t => plusToAnd(t.object)))));
     } else {
       clauses.push(clause(work, items[0].object));
     }
   }
+  return clauses;
+}
 
-  // Join clauses into sentences of 2 clauses each for natural rhythm.
-  // The first sentence continues after the opener's comma, so it stays lowercase.
+function clausesToSentences(clauses) {
   const sentences = [];
   for (let i = 0; i < clauses.length; i += 2) {
     const pair = clauses.slice(i, i + 2).join(", and ");
     sentences.push((i === 0 ? pair : capitalize(pair)) + ".");
   }
-
-  return `${opener} ${sentences.join(" ")}`;
+  return sentences.join(" ");
 }
+
+// ── Space openers (rotating) ─────────────────────────────────────
 
 const SPACE_OPENERS = [
   (s) => `In ${s},`,
@@ -193,131 +245,356 @@ const SPACE_OPENERS = [
   (s) => `Next, in ${s},`,
 ];
 
-export function generateEnglishScript(tasks, dayInfo) {
-  const { phases, wholeHouseInserts } = classifyTasks(tasks);
+// ── Space block: deep first (eye→sill→foot), regular, then floor ─
+
+function generateSpaceBlock(spaceTasks, opener) {
+  const deep    = spaceTasks.filter(t => t.freq > REGULAR_FREQ_MAX && !isFloorTask(t));
+  const regular = spaceTasks.filter(t => t.freq <= REGULAR_FREQ_MAX && !isFloorTask(t));
+  const floor   = spaceTasks.filter(t => isFloorTask(t));
+
+  deep.sort((a, b) => getObjectHeight(a.object) - getObjectHeight(b.object) || getWorkOrder(a.work) - getWorkOrder(b.work));
+  regular.sort((a, b) => getWorkOrder(a.work) - getWorkOrder(b.work));
+
   const lines = [];
-  const phaseCounts = {};
+
+  if (deep.length > 0) {
+    const deepClauses = buildGroupedClauses(deep);
+    const deepText = clausesToSentences(deepClauses);
+    if (regular.length > 0 || floor.length > 0) {
+      lines.push(`${opener} first the Deep Cleaning — ${deepText}`);
+    } else {
+      lines.push(`${opener} ${deepText}`);
+    }
+  }
+
+  if (regular.length > 0) {
+    const regClauses = buildGroupedClauses(regular);
+    const regText = clausesToSentences(regClauses);
+    if (deep.length > 0) {
+      lines.push(`Then for the regular cleaning, ${regText}`);
+    } else {
+      lines.push(`${opener} ${regText}`);
+    }
+  }
+
+  if (floor.length > 0) {
+    const hasWetMop = floor.some(t => t.work.toUpperCase().includes("MOP") && !t.work.toUpperCase().includes("DRY"));
+    const hasDryMop = floor.some(t => t.work.toUpperCase().includes("DRY MOP"));
+
+    if (hasWetMop)      lines.push("Then sweep and wet mop the floor properly.");
+    else if (hasDryMop) lines.push("Then sweep and only dry mop the floor — no wet mopping here.");
+    else                lines.push("Then sweep the floor properly.");
+  }
+
+  return lines;
+}
+
+// ── Washroom block: Harpic first → other work → bowl → floor ────
+
+function generateWashroomBlock(spaceTasks, opener) {
+  const wcLight = spaceTasks.filter(t => isWCObject(t.object) && /LIGHT CLEAN/i.test(t.work));
+  const wcOther = spaceTasks.filter(t => isWCObject(t.object) && !/LIGHT CLEAN/i.test(t.work));
+  const floorT  = spaceTasks.filter(t => isFloorObject(t.object));
+  const otherT  = spaceTasks.filter(t => !isWCObject(t.object) && !isFloorObject(t.object));
+
+  otherT.sort((a, b) => getObjectHeight(a.object) - getObjectHeight(b.object) || getWorkOrder(a.work) - getWorkOrder(b.work));
+
+  const lines = [];
+
+  if (wcLight.length > 0) {
+    lines.push(`${opener} first put Harpic in the WC and let it soak.`);
+  }
+
+  if (otherT.length > 0) {
+    const otherClauses = buildGroupedClauses(otherT);
+    const otherText = clausesToSentences(otherClauses);
+    lines.push(`${wcLight.length > 0 ? "Meanwhile," : opener} ${otherText}`);
+  }
+
+  if (wcLight.length > 0) {
+    lines.push("Now come back to the WC, scrub the bowl clean with the brush.");
+  }
+  if (wcOther.length > 0) {
+    const wcClauses = wcOther.map(t => clause(t.work, t.object));
+    lines.push(`Also ${wcClauses.join(", and ")}.`);
+  }
+
+  if (floorT.length > 0) {
+    lines.push(`Lastly, ${clause(floorT[0].work, floorT[0].object)}.`);
+  }
+
+  return lines;
+}
+
+// ── Natural-language closing (Phase 6) ───────────────────────────
+
+function naturalClosingClause(task, ownerTitle) {
+  const combined = (task.object + " " + task.work).toUpperCase();
+  if (combined.includes("WASTE") || combined.includes("SEGREGAT")) {
+    return "put all the waste in the dustbin properly, separate dry and wet";
+  }
+  if (combined.includes("ADD-ON") || combined.includes("EXTRA") || combined.includes("CLIENT")) {
+    return `if ${ownerTitle} has asked for any extra work today, please do that too`;
+  }
+  return clause(task.work, task.object);
+}
+
+// ── Broad plan (space-wise summary of regular tasks) ─────────────
+
+function buildBroadPlan(tasks) {
+  const spaceMap = {};
+  const spaceOrder = [];
+
+  for (const t of tasks) {
+    if (classifySpace(t.spaceName) === "whole_house") continue;
+    if (t.freq > REGULAR_FREQ_MAX) continue;
+    if (!spaceMap[t.spaceName]) {
+      spaceMap[t.spaceName] = { objects: new Set(), spaceNo: t.spaceNo };
+      spaceOrder.push(t.spaceName);
+    }
+    spaceMap[t.spaceName].objects.add(plusToAnd(t.object));
+  }
+
+  spaceOrder.sort((a, b) => (spaceMap[a].spaceNo || 0) - (spaceMap[b].spaceNo || 0));
+
+  return spaceOrder.map(space => {
+    const objs = [...spaceMap[space].objects];
+    if (objs.length <= 3) return `${space} — ${objs.join(", ")}`;
+    return `${space} — ${objs.slice(0, 3).join(", ")} and more`;
+  }).join("; ");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Task classification
+// ══════════════════════════════════════════════════════════════════
+
+export function classifyTasks(tasks) {
+  const kitchen    = [];
+  const bathroom   = [];
+  const closing    = [];
+  const wholeHouse = { clothes: [], water_bottles: [], toiletries: [] };
+  const zoneable   = [];
+
+  for (const task of tasks) {
+    const spaceType = classifySpace(task.spaceName);
+
+    if (spaceType === "whole_house" || task.spaceName.toUpperCase().includes("WHOLE HOUSE")) {
+      const cat = classifyWholeHouseCategory(task.object, task.work);
+      if (cat === "clothes")            wholeHouse.clothes.push(task);
+      else if (cat === "water_bottles") wholeHouse.water_bottles.push(task);
+      else if (cat === "toiletries")    wholeHouse.toiletries.push(task);
+      else                              closing.push(task);
+      continue;
+    }
+
+    if (spaceType === "kitchen")  { kitchen.push(task);  continue; }
+    if (spaceType === "bathroom") { bathroom.push(task); continue; }
+    zoneable.push(task);
+  }
+
+  const floorZones = splitIntoFloorZones(zoneable);
+
+  const deepSpaces = [...new Set(
+    tasks
+      .filter(t => t.freq > REGULAR_FREQ_MAX && classifySpace(t.spaceName) !== "whole_house")
+      .map(t => t.spaceName)
+  )];
+
+  // Phase counts for backward-compat return value
+  const phaseCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+  for (const t of zoneable) {
+    if (isFloorTask(t))                          phaseCounts[2]++;
+    else if (classifySpace(t.spaceName) === "outer") phaseCounts[3]++;
+    else                                         phaseCounts[1]++;
+  }
+  phaseCounts[1] += wholeHouse.clothes.length;
+  phaseCounts[4]  = kitchen.length + wholeHouse.water_bottles.length;
+  phaseCounts[5]  = bathroom.length + wholeHouse.toiletries.length;
+  phaseCounts[6]  = closing.length;
+
+  return { floorZones, kitchen, bathroom, closing, wholeHouse, deepSpaces, phaseCounts };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Main script generator — 5-section Work Structure format
+// ══════════════════════════════════════════════════════════════════
+
+export function generateEnglishScript(tasks, dayInfo, options = {}) {
+  const staffName  = options.staffName    || DEFAULT_CLIENT.staffName;
+  const ownerTitle = options.ownerTitle   || DEFAULT_CLIENT.ownerTitle;
+  const tongue     = options.motherTongue || DEFAULT_CLIENT.motherTongue;
+  const dayName    = (DAY_NAMES[tongue] || DAY_NAMES.nepali)[dayInfo.weekday] || dayInfo.weekday;
+
+  const {
+    floorZones, kitchen, bathroom, closing,
+    wholeHouse, deepSpaces, phaseCounts,
+  } = classifyTasks(tasks);
+
+  const lines = [];
   let openerIdx = 0;
   const nextOpener = (s) => SPACE_OPENERS[(openerIdx++) % SPACE_OPENERS.length](s);
 
-  const totalCount = tasks.length;
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION 1 — GREETING
+  // ═══════════════════════════════════════════════════════════════
+  lines.push("--- GREETING ---");
+  lines.push(`Namaste ${staffName} ji.`);
+  lines.push("");
 
-  // --- OPENING ---
-  lines.push(`--- OPENING ---`);
-  lines.push(`Hello. Let me explain today's cleaning in a little detail, so please listen carefully.`);
-  lines.push(``);
-
-  // --- DRY WORK (Phase 1, silent) ---
-  const p1 = sortBySpaceAndWork(phases[1]);
-  phaseCounts[1] = p1.length + wholeHouseInserts.clothes.length;
-  if (phaseCounts[1] > 0) {
-    lines.push(`--- DRY WORK ---`);
-    lines.push(`First, we start with the dry work and dusting.`);
-
-    const spaceGroups = groupBySpace(p1);
-    const spaceOrder = [...new Set(p1.map(t => t.spaceName))];
-    for (const space of spaceOrder) {
-      lines.push(spaceParagraph(space, spaceGroups[space], nextOpener(space)));
-    }
-
-    for (const t of wholeHouseInserts.clothes) {
-      lines.push(`Also, ${clause(t.work, t.object)}.`);
-    }
-    lines.push(``);
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION 2 — BROAD PLAN (day name, deep cleaning spaces, regular overview)
+  // ═══════════════════════════════════════════════════════════════
+  lines.push("--- OVERVIEW ---");
+  if (deepSpaces.length > 0) {
+    lines.push(
+      `Today is ${dayName}, and ${ownerTitle} has asked for regular cleaning along with Deep Cleaning of ${joinList(deepSpaces)}.`
+    );
+  } else {
+    lines.push(`Today is ${dayName}. Here is today's regular cleaning plan.`);
   }
 
-  // --- FLOOR WORK (Phase 2, silent) ---
-  const p2 = sortBySpaceAndWork(phases[2]);
-  phaseCounts[2] = p2.length;
-  if (p2.length > 0) {
-    lines.push(`--- FLOOR WORK ---`);
-    lines.push(`After the dusting, it's floor work.`);
+  const broadPlan = buildBroadPlan(tasks);
+  if (broadPlan) {
+    lines.push(`Today's regular work is: ${broadPlan}.`);
+  }
+  lines.push("");
 
-    const wetMopRooms = [...new Set(p2.filter(t => t.work.toUpperCase().includes("MOP") && !t.work.toUpperCase().includes("DRY")).map(t => t.spaceName))];
-    const dryMopRooms = [...new Set(p2.filter(t => t.work.toUpperCase().includes("DRY MOP")).map(t => t.spaceName))];
-    const wetOnly = wetMopRooms.filter(r => !dryMopRooms.includes(r));
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION 3 — PREP GUIDELINE
+  // ═══════════════════════════════════════════════════════════════
+  lines.push("--- PREP ---");
+  lines.push("Before starting, please make sure all your cleaning equipment and supplies are ready and within reach.");
+  lines.push("");
 
-    if (wetOnly.length > 0) {
-      lines.push(`Sweep properly and then wet mop in ${joinList(wetOnly)}.`);
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION 4 — DETAILED PLAN OF CLEANING
+  // ═══════════════════════════════════════════════════════════════
+  lines.push("--- DETAILED PLAN ---");
+  lines.push("Now let me explain all the work in detail.");
+  lines.push("");
+
+  // ── 4a. Whole-house laundry FIRST ──────────────────────────────
+  if (wholeHouse.clothes.length > 0) {
+    lines.push("--- LAUNDRY ---");
+    const laundryClauses = wholeHouse.clothes.map(t => clause(t.work, t.object));
+    lines.push(`First, ${laundryClauses.join(", and ")}.`);
+    if (wholeHouse.water_bottles.length > 0) {
+      lines.push("While coming back down, bring the water bottles to the kitchen — we will fill them later.");
     }
-    if (dryMopRooms.length > 0) {
-      lines.push(`In ${joinList(dryMopRooms)}, sweep first and then only dry mop — no wet mopping there.`);
-    }
-    lines.push(``);
+    lines.push("");
   }
 
-  // --- OUTER (Phase 3, silent) ---
-  const p3 = sortBySpaceAndWork(phases[3]);
-  phaseCounts[3] = p3.length;
-  if (p3.length > 0) {
-    lines.push(`--- OUTER AREAS ---`);
-    lines.push(`Then the outside areas.`);
+  // ── 4b. Floor-by-floor, space-by-space ─────────────────────────
+  const activeZones = floorZones.filter(z => z.tasks.length > 0);
+  const hasMultipleZones = activeZones.length > 1;
 
-    const spaceGroups = groupBySpace(p3);
-    const spaceOrder = [...new Set(p3.map(t => t.spaceName))];
-    for (const space of spaceOrder) {
-      lines.push(spaceParagraph(space, spaceGroups[space], nextOpener(space)));
+  for (let zi = 0; zi < activeZones.length; zi++) {
+    const zone = activeZones[zi];
+
+    if (hasMultipleZones) {
+      lines.push(`--- FLOOR: ${zone.label.toUpperCase()} ---`);
+      if (zi === 0) {
+        lines.push(`Starting from the ${zone.label}.`);
+      } else {
+        lines.push(`Good. Now let's move to the ${zone.label}.`);
+      }
     }
-    lines.push(``);
+
+    // Group tasks by space, preserving space-number order
+    const spaceMap = {};
+    const spaceOrder = [];
+    for (const t of zone.tasks) {
+      if (!spaceMap[t.spaceName]) { spaceMap[t.spaceName] = []; spaceOrder.push(t.spaceName); }
+      spaceMap[t.spaceName].push(t);
+    }
+
+    for (const space of spaceOrder) {
+      const block = generateSpaceBlock(spaceMap[space], nextOpener(space));
+      for (const line of block) lines.push(line);
+    }
+
+    lines.push("");
   }
 
-  // --- KITCHEN (Phase 4, silent) ---
-  const p4 = sortBySpaceAndWork(phases[4]);
-  phaseCounts[4] = p4.length + wholeHouseInserts.water_bottles.length;
-  if (phaseCounts[4] > 0) {
-    lines.push(`--- KITCHEN ---`);
-    lines.push(`Now let's look at the Kitchen.`);
+  // ── 4c. Kitchen (Phase 4) ──────────────────────────────────────
+  const sortedKitchen = [...kitchen].sort((a, b) => a.spaceNo - b.spaceNo || getWorkOrder(a.work) - getWorkOrder(b.work));
+  if (sortedKitchen.length > 0 || wholeHouse.water_bottles.length > 0 || wholeHouse.toiletries.length > 0) {
+    lines.push("--- KITCHEN ---");
+    lines.push("Now let's look at the Kitchen.");
 
-    const spaceGroups = groupBySpace(p4);
-    const spaceOrder = [...new Set(p4.map(t => t.spaceName))];
-    for (const space of spaceOrder) {
-      const opener = spaceOrder.length > 1 ? nextOpener(space) : `Here,`;
-      lines.push(spaceParagraph(space, spaceGroups[space], opener));
+    const kitchenSpaceMap = {};
+    const kitchenSpaceOrder = [];
+    for (const t of sortedKitchen) {
+      if (!kitchenSpaceMap[t.spaceName]) { kitchenSpaceMap[t.spaceName] = []; kitchenSpaceOrder.push(t.spaceName); }
+      kitchenSpaceMap[t.spaceName].push(t);
     }
 
-    for (const t of wholeHouseInserts.water_bottles) {
-      lines.push(`And yes, one more thing — ${clause(t.work, t.object)} for the whole house.`);
-    }
-    lines.push(``);
-  }
-
-  // --- WASHROOMS (Phase 5, silent) ---
-  const p5 = sortBySpaceAndWork(phases[5]);
-  phaseCounts[5] = p5.length + wholeHouseInserts.toiletries.length;
-  if (phaseCounts[5] > 0) {
-    lines.push(`--- WASHROOMS ---`);
-    lines.push(`In the washrooms —`);
-
-    const spaceGroups = groupBySpace(p5);
-    const spaceOrder = [...new Set(p5.map(t => t.spaceName))];
-    for (const space of spaceOrder) {
-      lines.push(spaceParagraph(space, spaceGroups[space], nextOpener(space)));
+    for (const space of kitchenSpaceOrder) {
+      const opener = kitchenSpaceOrder.length > 1 ? nextOpener(space) : "Here,";
+      const block = generateSpaceBlock(kitchenSpaceMap[space], opener);
+      for (const line of block) lines.push(line);
     }
 
-    for (const t of wholeHouseInserts.toiletries) {
+    if (wholeHouse.water_bottles.length > 0 && wholeHouse.clothes.length > 0) {
+      lines.push("Now fill the water bottles that you brought to the kitchen earlier.");
+    } else if (wholeHouse.water_bottles.length > 0) {
+      for (const t of wholeHouse.water_bottles) {
+        lines.push(`And yes, one more thing — ${clause(t.work, t.object)} for the whole house.`);
+      }
+    }
+
+    for (const t of wholeHouse.toiletries) {
       lines.push(`Also ${clause(t.work, t.object)}.`);
     }
-    lines.push(``);
+
+    lines.push("");
   }
 
-  // --- CLOSING WORK (Phase 6, silent) ---
-  const p6 = phases[6];
-  phaseCounts[6] = p6.length;
-  if (p6.length > 0) {
-    lines.push(`--- CLOSING WORK ---`);
-    const closingClauses = p6.map(t => clause(t.work, t.object));
-    lines.push(`And lastly, ${closingClauses.join(", and ")}.`);
-    lines.push(``);
+  // ── 4d. Washrooms (Phase 5) — Harpic protocol ─────────────────
+  const sortedBathroom = [...bathroom].sort((a, b) => a.spaceNo - b.spaceNo || getWorkOrder(a.work) - getWorkOrder(b.work));
+  if (sortedBathroom.length > 0) {
+    lines.push("--- WASHROOMS ---");
+    lines.push("In the washrooms —");
+
+    const bathSpaceMap = {};
+    const bathSpaceOrder = [];
+    for (const t of sortedBathroom) {
+      if (!bathSpaceMap[t.spaceName]) { bathSpaceMap[t.spaceName] = []; bathSpaceOrder.push(t.spaceName); }
+      bathSpaceMap[t.spaceName].push(t);
+    }
+
+    for (const space of bathSpaceOrder) {
+      const block = generateWashroomBlock(bathSpaceMap[space], nextOpener(space));
+      for (const line of block) lines.push(line);
+    }
+
+    if (sortedKitchen.length === 0 && wholeHouse.toiletries.length > 0) {
+      for (const t of wholeHouse.toiletries) {
+        lines.push(`Also ${clause(t.work, t.object)}.`);
+      }
+    }
+
+    lines.push("");
   }
 
-  // --- CLOSING ---
-  lines.push(`--- CLOSING ---`);
-  lines.push(`That's all for today. Please do everything carefully and properly. Thank you.`);
+  // ── 4e. Closing (Phase 6) — natural language ──────────────────
+  if (closing.length > 0) {
+    lines.push("--- CLOSING WORK ---");
+    const closingParts = closing.map(t => naturalClosingClause(t, ownerTitle));
+    lines.push(`And lastly, ${closingParts.join(", and ")}.`);
+    lines.push("");
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION 5 — ENDING
+  // ═══════════════════════════════════════════════════════════════
+  lines.push("--- ENDING ---");
+  lines.push("That was all the work for today. You have done everything very nicely. Thank you.");
 
   return {
     script: lines.join("\n"),
     lines,
-    totalTasks: totalCount,
+    totalTasks: tasks.length,
     phaseCounts,
     phases: {
       1: phaseCounts[1] || 0,
@@ -326,6 +603,6 @@ export function generateEnglishScript(tasks, dayInfo) {
       4: phaseCounts[4] || 0,
       5: phaseCounts[5] || 0,
       6: phaseCounts[6] || 0,
-    }
+    },
   };
 }
