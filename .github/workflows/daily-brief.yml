@@ -10,9 +10,8 @@
 name: Daily Zahab Brief
 
 on:
-  # schedule:
-  #   - cron: "30 14 * * *" # 20:00 IST daily
-  # ^^^ PAUSED — re-enable after content changes are finalised
+  schedule:
+    - cron: "30 14 * * *" # 20:00 IST daily
   workflow_dispatch: {}
 
 permissions:
